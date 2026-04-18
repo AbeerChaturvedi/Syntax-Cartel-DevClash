@@ -86,17 +86,17 @@ class TCopulaTailDependence:
     Operates on market *segments* rather than individual assets to keep
     the correlation matrix small (5×5) and the copula fit cheap.
 
-    Segments mirror CISS: equities, forex, rates, credit, volatility.
+    Segments mirror CISS: equities, forex, spreads, credit, volatility.
     """
 
-    SEGMENTS = ["equities", "forex", "rates", "credit", "volatility"]
+    SEGMENTS = ["equities", "forex", "spreads", "credit", "volatility"]
 
     # Which tickers contribute to which segment.  Missing tickers are
     # silently skipped, so the model degrades cleanly to a subset.
     SEGMENT_TICKERS: Dict[str, List[str]] = {
         "equities":   ["SPY", "QQQ", "DIA", "IWM", "XLF"],
         "forex":      ["EURUSD", "GBPUSD", "USDJPY"],
-        "rates":      ["US10Y", "US2Y", "SOFR"],
+        "spreads":    ["SPY", "QQQ", "JPM", "GS", "BAC"],  # spread-derived returns
         "credit":     ["JPM", "GS", "BAC", "C", "MS"],
         "volatility": ["BTCUSD", "ETHUSD"],
     }

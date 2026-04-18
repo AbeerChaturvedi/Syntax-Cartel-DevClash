@@ -32,9 +32,6 @@ class MarketSimulator:
         "EURUSD": {"base": 1.0850, "vol": 0.004, "class": "FX"},
         "GBPUSD": {"base": 1.2650, "vol": 0.005, "class": "FX"},
         "USDJPY": {"base": 154.20, "vol": 0.006, "class": "FX"},
-        "US10Y":  {"base": 4.35,   "vol": 0.008, "class": "BOND"},
-        "US2Y":   {"base": 4.72,   "vol": 0.010, "class": "BOND"},
-        "SOFR":   {"base": 5.33,   "vol": 0.002, "class": "RATE"},
         "BTCUSD": {"base": 67500,  "vol": 0.025, "class": "CRYPTO"},
         "ETHUSD": {"base": 3250,   "vol": 0.030, "class": "CRYPTO"},
     }

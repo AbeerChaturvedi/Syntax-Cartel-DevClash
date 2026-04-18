@@ -117,14 +117,28 @@ class AnomalyDetectorIF:
         return dict(pairs[:10])
 
     def _auto_train(self):
-        """Generate synthetic normal data and train."""
+        """Generate synthetic normal data and train.
+        
+        Uses a distribution that matches real-world calm market conditions:
+        - Returns: ~N(0, 0.003) for typical intraday moves
+        - Vol: clustered around 0.002-0.005
+        - Max abs return: typically < 0.01 in calm markets
+        """
         np.random.seed(42)
-        # 72 features: 18 assets × 4 features each
-        n_features = 72
+        # 60 features: 15 assets × 4 features each (bonds/rates removed)
+        n_features = 60
         n_samples = 5000
 
-        # Simulate calm market: small returns, low vol
-        normal_data = np.random.randn(n_samples, n_features) * 0.01
+        # Generate calm market data with realistic feature distributions
+        # Features per asset: [return, vol, mean_return, max_abs_return]
+        normal_data = np.zeros((n_samples, n_features))
+        for i in range(15):  # 15 assets
+            base = i * 4
+            normal_data[:, base + 0] = np.random.normal(0, 0.003, n_samples)       # latest return
+            normal_data[:, base + 1] = np.abs(np.random.normal(0.002, 0.001, n_samples))  # vol
+            normal_data[:, base + 2] = np.random.normal(0, 0.001, n_samples)       # mean return
+            normal_data[:, base + 3] = np.abs(np.random.normal(0.005, 0.003, n_samples))  # max abs return
+
         self.train(normal_data)
 
     def save(self, model_path: str = None, scaler_path: str = None):

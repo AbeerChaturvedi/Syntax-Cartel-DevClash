@@ -28,16 +28,17 @@ except ImportError:
     websockets = None
 
 
-# Finnhub symbol mapping → internal asset names
+# Finnhub symbol mapping → internal asset names (15-asset universe)
 FINNHUB_SYMBOL_MAP = {
-    # US Equities (Finnhub uses plain tickers)
-    "AAPL": "AAPL", "MSFT": "MSFT", "GOOGL": "GOOGL",
-    "AMZN": "AMZN", "TSLA": "TSLA", "JPM": "JPM",
-    # Forex (OANDA: format)
-    "OANDA:EUR_USD": "EUR/USD", "OANDA:GBP_USD": "GBP/USD",
-    "OANDA:USD_JPY": "USD/JPY",
-    # Crypto (Binance)
-    "BINANCE:BTCUSDT": "BTC/USD", "BINANCE:ETHUSDT": "ETH/USD",
+    # US Equities — ETFs (Finnhub uses plain tickers)
+    "SPY": "SPY", "QQQ": "QQQ", "DIA": "DIA", "IWM": "IWM", "XLF": "XLF",
+    # US Equities — Banks
+    "JPM": "JPM", "GS": "GS", "BAC": "BAC", "C": "C", "MS": "MS",
+    # Forex (OANDA — may need paid plan on free tier)
+    "OANDA:EUR_USD": "EURUSD", "OANDA:GBP_USD": "GBPUSD",
+    "OANDA:USD_JPY": "USDJPY",
+    # Crypto (Binance — free tier)
+    "BINANCE:BTCUSDT": "BTCUSD", "BINANCE:ETHUSDT": "ETHUSD",
 }
 
 # Reverse mapping for subscriptions
@@ -55,9 +56,10 @@ class FinnhubConnector:
 
     FINNHUB_WS_URL = "wss://ws.finnhub.io"
 
-    def __init__(self, api_key: str, aggregation_interval: float = 0.25):
+    def __init__(self, api_key: str, aggregation_interval: float = None):
+        from utils.config import FINNHUB_AGGREGATION_INTERVAL
         self.api_key = api_key
-        self.aggregation_interval = aggregation_interval  # seconds between tick emissions
+        self.aggregation_interval = aggregation_interval or FINNHUB_AGGREGATION_INTERVAL
         self._ws = None
         self._running = False
         self._circuit = CircuitBreaker("finnhub_ws", failure_threshold=3, recovery_timeout=60.0)
@@ -69,6 +71,8 @@ class FinnhubConnector:
         self._last_prices: dict[str, float] = {}
         self._price_history: dict[str, list] = defaultdict(list)
         self._tick_count = 0
+        self._last_trade_ts: dict[str, float] = {}  # For dedup
+        self._last_trade_price: dict[str, float] = {}  # For dedup
         
         # Callback for emitting ticks
         self._on_tick: Optional[Callable[[dict], Awaitable[None]]] = None
@@ -155,6 +159,14 @@ class FinnhubConnector:
                 if not internal_name or price <= 0:
                     continue
 
+                # Tick deduplication: skip if same symbol + same price within 50ms
+                last_ts = self._last_trade_ts.get(internal_name, 0)
+                last_p = self._last_trade_price.get(internal_name, -1)
+                if abs(ts - last_ts) < 50 and abs(price - last_p) < 1e-8:
+                    continue
+                self._last_trade_ts[internal_name] = ts
+                self._last_trade_price[internal_name] = price
+
                 self._trade_buffer[internal_name].append({
                     "price": price,
                     "volume": volume,
@@ -209,13 +221,31 @@ class FinnhubConnector:
             if len(history) >= 2:
                 pct_change = ((history[-1] / history[-2]) - 1) * 100
 
+            # Compute rolling_volatility from price history
+            prices_list = self._price_history[symbol]
+            if len(prices_list) >= 3:
+                log_rets = np.diff(np.log(prices_list[-min(60, len(prices_list)):])) 
+                rolling_vol = float(np.std(log_rets) * np.sqrt(252 * 390)) if len(log_rets) > 1 else 0.0
+            else:
+                rolling_vol = 0.0
+
+            # Map to asset class
+            asset_class = "EQUITY"
+            if symbol in ("EURUSD", "GBPUSD", "USDJPY"):
+                asset_class = "FX"
+            elif symbol in ("BTCUSD", "ETHUSD"):
+                asset_class = "CRYPTO"
+
             assets[symbol] = {
-                "price": round(vwap, 4),
+                "price": round(vwap, 6),
                 "pct_change": round(pct_change, 4),
-                "high": round(high, 4),
-                "low": round(low, 4),
+                "price_change": round(vwap - history[-2] if len(history) >= 2 else 0, 6),
+                "high": round(high, 6),
+                "low": round(low, 6),
                 "volume": round(total_volume, 2),
                 "spread_bps": round((high - low) / vwap * 10000 if vwap > 0 else 0, 2),
+                "rolling_volatility": round(rolling_vol, 6),
+                "asset_class": asset_class,
                 "trade_count": len(trades),
             }
 
@@ -227,45 +257,18 @@ class FinnhubConnector:
 
         self._tick_count += 1
 
-        # Build state vector (72-dim) for ML pipeline
-        state_vector = self._build_state_vector()
+        from datetime import datetime, timezone
 
         return {
             "tick_id": self._tick_count,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "epoch_ms": int(time.time() * 1000),
             "source": "finnhub_live",
+            "crisis_mode": False,
+            "crisis_intensity": 0.0,
             "assets": assets,
-            "state_vector": state_vector,
             "n_assets": len(assets),
         }
-
-    def _build_state_vector(self) -> list:
-        """
-        Build a 72-dimensional state vector from live data.
-        Format: [price_norm, return, vol, spread] × 18 assets.
-        Pads with zeros for assets without live data.
-        """
-        TARGET_ASSETS = [
-            "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "JPM",
-            "EUR/USD", "GBP/USD", "USD/JPY",
-            "BTC/USD", "ETH/USD",
-            # Pad remaining with simulator-only assets
-            "US10Y", "US02Y", "DXY", "SPX", "VIX", "GOLD", "OIL",
-        ]
-        vector = []
-        for asset in TARGET_ASSETS:
-            history = self._price_history.get(asset, [])
-            if len(history) >= 2:
-                price_norm = history[-1] / history[0] if history[0] > 0 else 1.0
-                ret = (history[-1] / history[-2]) - 1
-                returns = np.diff(history[-min(60, len(history)):]) / np.array(history[-min(60, len(history)):-1])
-                vol = float(np.std(returns)) if len(returns) > 1 else 0.0
-                spread = abs(ret) * 100
-            else:
-                price_norm, ret, vol, spread = 1.0, 0.0, 0.0, 0.0
-            vector.extend([price_norm, ret, vol, spread])
-
-        return vector[:72]  # Ensure exactly 72 dimensions
 
     def get_status(self) -> dict:
         return {

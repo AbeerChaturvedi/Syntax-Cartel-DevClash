@@ -64,7 +64,27 @@ RATE_LIMIT_PER_MINUTE = _env("RATE_LIMIT_PER_MINUTE", 120, int)
 # ── Live Data ───────────────────────────────────────────────────────
 FINNHUB_API_KEY = _env("FINNHUB_API_KEY", "")
 POLYGON_API_KEY = _env("POLYGON_API_KEY", "")
+FRED_API_KEY = _env("FRED_API_KEY", "")
 DATA_MODE = _env("DATA_MODE", "simulator")  # "simulator" | "finnhub" | "hybrid"
+ENABLE_SIMULATOR = _env("ENABLE_SIMULATOR", "true").lower() in ("true", "1", "yes")
+
+# Finnhub free tier: 60 REST requests/min. WebSocket is unlimited.
+FINNHUB_RATE_LIMIT_PER_MIN = _env("FINNHUB_RATE_LIMIT_PER_MIN", 60, int)
+# Aggregation interval for Finnhub WebSocket (seconds between tick emissions)
+FINNHUB_AGGREGATION_INTERVAL = _env("FINNHUB_AGGREGATION_INTERVAL", 1.0, float)
+
+# ── Asset Universe ──────────────────────────────────────────────────
+# 15 assets after removing bonds/rates (US10Y, US2Y, SOFR)
+NUM_ASSETS = 15
+NUM_FEATURES_PER_ASSET = 4
+STATE_VECTOR_DIM = NUM_ASSETS * NUM_FEATURES_PER_ASSET  # 60
+
+# ── Historical Data ─────────────────────────────────────────────────
+HISTORICAL_DATA_DIR = _env(
+    "HISTORICAL_DATA_DIR",
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "historical"),
+)
+POLYGON_RATE_LIMIT_PER_MIN = _env("POLYGON_RATE_LIMIT_PER_MIN", 5, int)
 
 # ── Speed Presets ───────────────────────────────────────────────────
 SPEED_PRESETS = {

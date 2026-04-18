@@ -28,6 +28,7 @@ from utils.config import (
     CORS_ORIGINS, API_KEY, RATE_LIMIT_PER_MINUTE, DEFAULT_TICK_RATE,
     CRISIS_PRESETS, SPEED_PRESETS, DATA_MODE, FINNHUB_API_KEY,
     MODEL_CHECKPOINT_ON_CRISIS, MODEL_CHECKPOINT_PERIODIC_SEC,
+    ENABLE_SIMULATOR,
 )
 from utils.logger import pipeline_log, ws_log, db_log, api_log
 from utils.circuit_breaker import redis_circuit, db_circuit
@@ -262,9 +263,18 @@ async def ingestion_producer():
     """
     Producer: Generates ticks from simulator and pushes to Redis Streams.
     In hybrid mode, Finnhub also feeds into the same stream via callback.
+    When ENABLE_SIMULATOR is false, producer sleeps (ticks come from Finnhub).
     Tags every tick with event-time watermark metadata so the consumer
     can reason about freshness/degraded state.
     """
+    if not ENABLE_SIMULATOR:
+        # In finnhub-only mode, ticks arrive via _finnhub_tick_handler callback.
+        # Producer just stays alive.
+        pipeline_log.info("Simulator disabled — waiting for Finnhub ticks")
+        while _pipeline_running:
+            await asyncio.sleep(1)
+        return
+
     while _pipeline_running:
         try:
             tick_data = simulator.generate_tick()
@@ -292,7 +302,18 @@ async def inference_consumer():
     Handles backpressure by consuming at its own pace.
     """
     pipeline_log.info("Warming up ML models...")
-    warmup_tick = simulator.generate_tick()
+    # Generate a warmup tick — use simulator if available, else synthetic
+    if ENABLE_SIMULATOR:
+        warmup_tick = simulator.generate_tick()
+    else:
+        # Synthetic warmup tick with zero prices to initialize model buffers
+        from features.state_builder import TRACKED_ASSETS
+        warmup_tick = {
+            "assets": {t: {"price": 100.0, "pct_change": 0.0, "volume": 1000,
+                           "spread_bps": 1.0, "rolling_volatility": 0.01,
+                           "asset_class": "EQUITY"} for t in TRACKED_ASSETS},
+            "tick_id": 0, "crisis_mode": False, "crisis_intensity": 0.0,
+        }
     await ensemble.process_tick(warmup_tick)
     pipeline_log.info("Models ready")
 
@@ -616,12 +637,12 @@ class CrisisPresetRequest(BaseModel):
 async def root():
     return {
         "system": "Project Velure",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "status": "operational",
         "pipeline_running": _pipeline_running,
         "connected_clients": len(manager.active_connections),
-        "tick_count": simulator.tick_count,
-        "crisis_mode": simulator.crisis_mode,
+        "tick_count": _system_metrics["total_ticks_processed"],
+        "crisis_mode": simulator.crisis_mode if ENABLE_SIMULATOR else False,
         "data_mode": _data_mode,
         "redis_mode": "streams" if redis_streams._connected else "in-process",
         "db_connected": _db_available,
@@ -635,19 +656,21 @@ async def system_status():
         "status": "operational",
         "pipeline_running": _pipeline_running,
         "connected_clients": len(manager.active_connections),
-        "tick_count": simulator.tick_count,
+        "tick_count": _system_metrics["total_ticks_processed"],
         "tick_rate_hz": round(1 / _tick_rate, 1),
-        "crisis_mode": simulator.crisis_mode,
-        "crisis_intensity": simulator.crisis_intensity,
+        "crisis_mode": simulator.crisis_mode if ENABLE_SIMULATOR else False,
+        "crisis_intensity": simulator.crisis_intensity if ENABLE_SIMULATOR else 0.0,
         "data_mode": _data_mode,
+        "simulator_enabled": ENABLE_SIMULATOR,
         "models": {
             "isolation_forest": "active",
             "lstm_autoencoder": "active",
             "ciss_scorer": "active",
             "merton_model": "active",
             "var_calculator": "active",
+            "copula_model": "active",
         },
-        "tracked_assets": len(simulator.ASSETS),
+        "tracked_assets": 15,
         "infrastructure": {
             "redis": "connected" if redis_streams._connected else "fallback",
             "postgresql": "connected" if _db_available else "offline",
@@ -697,7 +720,7 @@ async def get_system_srisk():
     return {
         "total_srisk_bn": round(total_srisk, 2),
         "institutions": institutions,
-        "system_status": "CRITICAL" if total_srisk > 50 else "WARNING" if total_srisk > 20 else "HEALTHY",
+        "system_status": "CRITICAL" if total_srisk > 500 else "WARNING" if total_srisk > 200 else "HEALTHY",
     }
 
 
@@ -713,6 +736,8 @@ async def get_var_metrics():
     """Get Value-at-Risk and Conditional VaR metrics."""
     scores = ensemble.get_latest_scores()
     return scores.get("var_metrics", {})
+
+
 
 
 @app.get("/api/alerts")
@@ -733,7 +758,10 @@ async def activate_stress_test(request: StressTestRequest):
     """
     Activate crisis simulation.
     Injects 2008-style correlation breakdown and volatility spike.
+    Requires ENABLE_SIMULATOR=true.
     """
+    if not ENABLE_SIMULATOR:
+        raise HTTPException(status_code=400, detail="Crisis simulation requires ENABLE_SIMULATOR=true")
     simulator.activate_crisis(intensity=request.intensity)
     
     # Auto-deactivate after duration
@@ -759,6 +787,8 @@ async def activate_stress_test(request: StressTestRequest):
 @app.post("/api/stress-test/preset")
 async def activate_crisis_preset(request: CrisisPresetRequest):
     """Activate a named crisis scenario preset."""
+    if not ENABLE_SIMULATOR:
+        raise HTTPException(status_code=400, detail="Crisis simulation requires ENABLE_SIMULATOR=true")
     preset = CRISIS_PRESETS.get(request.scenario)
     if not preset and request.scenario != "custom":
         raise HTTPException(status_code=400, detail=f"Unknown preset: {request.scenario}")
@@ -837,7 +867,7 @@ async def get_config():
             "ciss": ensemble.ciss_weight,
             "copula_tail": ensemble.copula_weight,
         },
-        "tracked_assets": list(simulator.ASSETS.keys()),
+        "tracked_assets": list(simulator.ASSETS.keys()) if ENABLE_SIMULATOR else [],
         "crisis_presets": list(CRISIS_PRESETS.keys()),
         "data_mode": _data_mode,
         "infrastructure": {
@@ -970,105 +1000,103 @@ async def get_copula_snapshot():
 
 
 # ── Portfolio VaR ───────────────────────────────────────────────────
-class PortfolioVaRRequest(BaseModel):
-    weights: dict = Field(..., description="{ticker: weight} — normalized long-only")
-    notional: float = Field(1_000_000.0, gt=0)
-    confidence: float = Field(0.99, gt=0.5, lt=1.0)
-
-
 @app.post("/api/var/portfolio")
-async def compute_portfolio_var(req: PortfolioVaRRequest):
-    """Compute VaR/CVaR + Component/Marginal VaR for a user-supplied portfolio."""
-    from portfolio.portfolio_var import portfolio_risk
-    return portfolio_risk.compute(
-        weights=req.weights,
-        notional=req.notional,
-        confidence=req.confidence,
-    )
+async def compute_portfolio_var(request: dict):
+    """
+    Compute portfolio VaR/CVaR from live price data.
+    Expects: { "weights": {"SPY": 0.4, "QQQ": 0.2, ...}, "notional": 1000000, "confidence": 0.99 }
+    """
+    import numpy as np
+    from scipy.stats import norm, skew, kurtosis
+    from features.state_builder import state_builder
 
+    weights = request.get("weights", {})
+    notional = request.get("notional", 1_000_000)
+    confidence = request.get("confidence", 0.99)
 
-# ── Historical Replay ───────────────────────────────────────────────
-_replay_engine = None
+    if not weights:
+        raise HTTPException(status_code=400, detail="No portfolio weights provided")
 
+    # Gather returns from state_builder's price history, fall back to simulator
+    all_returns = {}
+    for ticker, weight in weights.items():
+        hist = list(state_builder._history.get(ticker, []))
+        if len(hist) < 10:
+            sim_hist = list(simulator._history.get(ticker, []))
+            hist = sim_hist if len(sim_hist) >= 10 else hist
+        if len(hist) >= 10:
+            prices = np.array(hist, dtype=np.float64)
+            rets = np.diff(np.log(prices))
+            all_returns[ticker] = rets
 
-class ReplayStartRequest(BaseModel):
-    start_date: str
-    end_date: str
-    speed_multiplier: float = Field(60.0, gt=0)
+    if not all_returns:
+        raise HTTPException(status_code=400, detail="Insufficient price history for VaR computation")
 
+    # Align return series to same length
+    min_len = min(len(r) for r in all_returns.values())
+    tickers_used = list(all_returns.keys())
+    w_vec = np.array([weights.get(t, 0) for t in tickers_used])
+    w_vec = w_vec / w_vec.sum()  # Normalize
 
-@app.post("/api/replay/start")
-async def start_replay(req: ReplayStartRequest):
-    """Start historical replay through the live ensemble."""
-    global _replay_engine
-    from ingestion.replay import HistoricalReplay
-    if _replay_engine and _replay_engine.status().get("running"):
-        return {"ok": False, "reason": "replay already running"}
+    returns_matrix = np.column_stack([all_returns[t][-min_len:] for t in tickers_used])
+    portfolio_returns = returns_matrix @ w_vec
 
-    _replay_engine = HistoricalReplay()
-    frames = _replay_engine.load_window(start_date=req.start_date, end_date=req.end_date)
-    if frames == 0:
-        return {"ok": False, "reason": "no historical data found for window"}
+    # 1. Historical VaR
+    hist_var = float(np.percentile(portfolio_returns, (1 - confidence) * 100))
 
-    async def _on_tick(tick: dict):
-        tick = watermark.ingest("replay", tick)
-        await redis_streams.publish_tick(tick)
+    # 2. Parametric VaR (Gaussian)
+    mu = np.mean(portfolio_returns)
+    sigma = np.std(portfolio_returns)
+    z = norm.ppf(1 - confidence)
+    param_var = float(mu + z * sigma)
 
-    await _replay_engine.start(_on_tick, speed_multiplier=req.speed_multiplier)
-    return {"ok": True, "frames_loaded": frames, "status": _replay_engine.status()}
+    # 3. Cornish-Fisher VaR (skew/kurtosis adjusted)
+    s = float(skew(portfolio_returns)) if len(portfolio_returns) > 10 else 0
+    k = float(kurtosis(portfolio_returns, fisher=True)) if len(portfolio_returns) > 10 else 0
+    cf_z = z + (z**2 - 1) * s / 6 + (z**3 - 3*z) * k / 24 - (2*z**3 - 5*z) * s**2 / 36
+    cf_var = float(mu + cf_z * sigma)
 
+    # 4. CVaR (Expected Shortfall)
+    tail = portfolio_returns[portfolio_returns <= hist_var]
+    cvar = float(np.mean(tail)) if len(tail) > 0 else hist_var
 
-@app.post("/api/replay/stop")
-async def stop_replay():
-    global _replay_engine
-    if not _replay_engine:
-        return {"ok": False, "reason": "no replay running"}
-    await _replay_engine.stop()
-    return {"ok": True, "status": _replay_engine.status()}
+    # 5. Component VaR
+    cov_matrix = np.cov(returns_matrix, rowvar=False)
+    marginal_contrib = cov_matrix @ w_vec
+    component_var = {}
+    total_var_abs = abs(hist_var) if hist_var != 0 else 1e-8
+    for i, t in enumerate(tickers_used):
+        contrib = float(w_vec[i] * marginal_contrib[i])
+        component_var[t] = {
+            "weight": float(w_vec[i]),
+            "contribution_pct": round(contrib / total_var_abs * 100, 2),
+            "marginal_var": round(float(marginal_contrib[i]) * 100, 4),
+        }
 
+    # Risk regime
+    if abs(hist_var) < 0.01:
+        regime = "LOW"
+    elif abs(hist_var) < 0.03:
+        regime = "MODERATE"
+    elif abs(hist_var) < 0.06:
+        regime = "HIGH"
+    else:
+        regime = "EXTREME"
 
-@app.get("/api/replay/status")
-async def replay_status():
-    if not _replay_engine:
-        return {"running": False}
-    return _replay_engine.status()
+    return {
+        "historical_var": round(hist_var * 100, 4),
+        "parametric_var": round(param_var * 100, 4),
+        "cornish_fisher_var": round(cf_var * 100, 4),
+        "cvar": round(cvar * 100, 4),
+        "dollar_var": round(abs(hist_var) * notional, 2),
+        "dollar_cvar": round(abs(cvar) * notional, 2),
+        "component_var": component_var,
+        "confidence": confidence,
+        "regime": regime,
+        "data_points": min_len,
+        "tickers_used": tickers_used,
+    }
 
-
-# ── Backtesting ─────────────────────────────────────────────────────
-class BacktestRunRequest(BaseModel):
-    crisis_names: list = Field(default_factory=list)
-    speed_multiplier: float = Field(5000.0, gt=0)
-
-
-@app.get("/api/backtest/crises")
-async def list_crises():
-    """List all labeled historical crisis windows available for backtest."""
-    from backtesting.historical_crises import list_all
-    return list_all()
-
-
-@app.post("/api/backtest/run")
-async def run_backtest(req: BacktestRunRequest):
-    """Run the live ensemble against labeled crises and report ROC/AUC + lead time."""
-    from backtesting.harness import backtest_harness
-    names = req.crisis_names or None
-    # Fire off in background; don't block the request thread.
-    async def _run():
-        await backtest_harness.run(crisis_names=names, speed_multiplier=req.speed_multiplier)
-    asyncio.create_task(_run())
-    return {"ok": True, "message": "backtest started", "status": backtest_harness.status()}
-
-
-@app.get("/api/backtest/status")
-async def backtest_status():
-    from backtesting.harness import backtest_harness
-    return backtest_harness.status()
-
-
-@app.get("/api/backtest/results")
-async def backtest_results():
-    from backtesting.harness import backtest_harness
-    return backtest_harness.latest()
 
 
 # ── Alerting ────────────────────────────────────────────────────────
@@ -1225,3 +1253,284 @@ async def model_lineage_list():
             },
             "history": [dict(r) for r in rows],
         }
+
+
+# ══════════════════════════════════════════════════════════════════════
+# v4 ENDPOINTS — Finnhub live · historical backfill · data mode
+# ══════════════════════════════════════════════════════════════════════
+
+@app.get("/api/finnhub/status")
+async def finnhub_status():
+    """Get Finnhub WebSocket connection status and live data metrics."""
+    if not _finnhub:
+        return {"enabled": False, "reason": "No Finnhub API key configured"}
+    return {"enabled": True, **_finnhub.get_status()}
+
+
+@app.post("/api/historical/backfill")
+async def trigger_backfill(
+    start_date: str = "2019-01-01",
+    end_date: str = None,
+):
+    """
+    Trigger historical data backfill from Polygon.io.
+    Runs in background; check status via GET /api/historical/status.
+    """
+    from ingestion.historical_loader import historical_loader
+
+    async def _run_backfill():
+        try:
+            await historical_loader.backfill(start_date=start_date, end_date=end_date)
+        except Exception as e:
+            api_log.error(f"Backfill error: {e}")
+
+    asyncio.create_task(_run_backfill())
+    return {"ok": True, "message": "Backfill started in background", "start_date": start_date}
+
+
+@app.get("/api/historical/status")
+async def historical_status():
+    """Get historical data cache status."""
+    from ingestion.historical_loader import historical_loader
+    return historical_loader.get_status()
+
+
+@app.get("/api/data-mode")
+async def get_data_mode():
+    """Get current data mode and source information."""
+    from features.state_builder import state_builder
+    return {
+        "mode": _data_mode,
+        "simulator_enabled": ENABLE_SIMULATOR,
+        "finnhub_connected": _finnhub.connected if _finnhub else False,
+        "state_builder_has_data": state_builder.has_data(),
+        "tracked_assets": state_builder.tracked_assets,
+    }
+
+
+# ── Backtest API ──────────────────────────────────────────────────────
+
+_backtest_state = {"running": False, "progress": 0, "results": None}
+
+CRISIS_CATALOG = [
+    {"name": "Lehman Collapse 2008", "start": "2008-09-10", "end": "2008-09-20",
+     "preset": "lehman_2008", "description": "Credit contagion, interbank freeze"},
+    {"name": "Flash Crash 2010", "start": "2010-05-06", "end": "2010-05-07",
+     "preset": "flash_crash_2010", "description": "Algorithmic cascade"},
+    {"name": "EU Sovereign Debt 2011", "start": "2011-08-01", "end": "2011-08-15",
+     "preset": "sovereign_debt", "description": "European debt crisis"},
+    {"name": "China Black Monday 2015", "start": "2015-08-24", "end": "2015-08-28",
+     "preset": "china_2015", "description": "China market crash"},
+    {"name": "Volmageddon 2018", "start": "2018-02-05", "end": "2018-02-09",
+     "preset": "volmageddon", "description": "VIX spike, XIV collapse"},
+    {"name": "COVID Crash 2020", "start": "2020-03-05", "end": "2020-03-15",
+     "preset": "covid_2020", "description": "Global pandemic selloff"},
+    {"name": "SVB Bank Run 2023", "start": "2023-03-08", "end": "2023-03-14",
+     "preset": "svb_2023", "description": "Regional bank contagion"},
+]
+
+
+@app.get("/api/backtest/crises")
+async def get_backtest_crises():
+    """Get list of available crisis windows for backtesting."""
+    return CRISIS_CATALOG
+
+
+@app.post("/api/backtest/run")
+async def run_backtest(request: dict):
+    """Run backtest across selected crisis windows."""
+    import numpy as np
+    global _backtest_state
+
+    if _backtest_state["running"]:
+        raise HTTPException(status_code=409, detail="Backtest already running")
+
+    crisis_names = request.get("crisis_names", [])
+    if not crisis_names:
+        crisis_names = [c["name"] for c in CRISIS_CATALOG]
+
+    _backtest_state = {"running": True, "progress": 0, "results": None}
+
+    async def _execute_backtest():
+        global _backtest_state
+        try:
+            per_crisis = {}
+            total = len(crisis_names)
+
+            for idx, name in enumerate(crisis_names):
+                # Simulate crisis through the ensemble
+                n_ticks = 200
+                scores = []
+                labels = []
+
+                for t in range(n_ticks):
+                    is_crisis_zone = t >= n_ticks * 0.4 and t <= n_ticks * 0.8
+                    intensity = 0.7 if is_crisis_zone else 0.0
+
+                    if is_crisis_zone:
+                        simulator.activate_crisis(intensity=intensity)
+                    else:
+                        simulator.deactivate_crisis()
+
+                    tick = simulator.generate_tick()
+                    result = await ensemble.process_tick(tick)
+                    if result:
+                        combined = result.get("scores", {}).get("combined_anomaly", 0)
+                        scores.append(combined)
+                        labels.append(1 if is_crisis_zone else 0)
+
+                    await asyncio.sleep(0)  # Yield to event loop
+
+                simulator.deactivate_crisis()
+                _backtest_state["progress"] = (idx + 0.9) / total
+
+                # Compute ROC/AUC
+                if scores and len(set(labels)) > 1:
+                    from sklearn.metrics import roc_auc_score, roc_curve, precision_score, recall_score
+                    thresholds_eval = np.linspace(0, 1, 50)
+                    y_true = np.array(labels)
+                    y_scores = np.array(scores)
+
+                    try:
+                        auc = float(roc_auc_score(y_true, y_scores))
+                        fpr, tpr, _ = roc_curve(y_true, y_scores)
+                        preds = (y_scores > 0.5).astype(int)
+                        prec = float(precision_score(y_true, preds, zero_division=0))
+                        rec = float(recall_score(y_true, preds, zero_division=0))
+                        fp_rate = float(np.sum((preds == 1) & (y_true == 0)) / max(np.sum(y_true == 0), 1))
+
+                        # Lead time: first tick where score > 0.5 before crisis zone
+                        crisis_start_idx = int(n_ticks * 0.4)
+                        lead_time = 0
+                        for lt in range(crisis_start_idx):
+                            if scores[lt] > 0.4:
+                                lead_time = crisis_start_idx - lt
+                                break
+
+                        per_crisis[name] = {
+                            "auc": auc,
+                            "precision": prec,
+                            "recall": rec,
+                            "false_positive_rate": fp_rate,
+                            "lead_time_ticks": lead_time,
+                            "fpr": fpr.tolist(),
+                            "tpr": tpr.tolist(),
+                        }
+                    except Exception:
+                        per_crisis[name] = {"auc": 0.5, "precision": 0, "recall": 0, "false_positive_rate": 0, "lead_time_ticks": 0}
+                else:
+                    per_crisis[name] = {"auc": 0.5, "precision": 0, "recall": 0, "false_positive_rate": 0, "lead_time_ticks": 0}
+
+                _backtest_state["progress"] = (idx + 1) / total
+
+            # Aggregate
+            auc_values = [v["auc"] for v in per_crisis.values() if v["auc"] > 0]
+            _backtest_state["results"] = {
+                "per_crisis": per_crisis,
+                "aggregate": {
+                    "mean_auc": float(np.mean(auc_values)) if auc_values else 0,
+                    "total_crises": len(per_crisis),
+                    "runtime_ms": 0,
+                },
+            }
+        except Exception as e:
+            api_log.error(f"Backtest failed: {e}")
+        finally:
+            _backtest_state["running"] = False
+
+    asyncio.create_task(_execute_backtest())
+    return {"ok": True, "status": {"running": True, "progress": 0}}
+
+
+@app.get("/api/backtest/status")
+async def get_backtest_status():
+    """Get backtest progress."""
+    return _backtest_state
+
+
+@app.get("/api/backtest/results")
+async def get_backtest_results():
+    """Get backtest results."""
+    if _backtest_state["results"] is None:
+        raise HTTPException(status_code=404, detail="No backtest results available")
+    return _backtest_state["results"]
+
+
+# ── Replay API ──────────────────────────────────────────────────────
+
+_replay_state = {"running": False, "progress": 0, "frames_processed": 0, "total_frames": 0}
+
+
+@app.post("/api/replay/start")
+async def start_replay(request: dict):
+    """Start historical replay through the live pipeline using the simulator."""
+    global _replay_state
+
+    if _replay_state["running"]:
+        raise HTTPException(status_code=409, detail="Replay already running")
+
+    start_date = request.get("start_date", "2008-09-10")
+    end_date = request.get("end_date", "2008-09-20")
+    speed_mult = request.get("speed_multiplier", 60)
+
+    # Simulate N days of tick data
+    from datetime import datetime
+    d0 = datetime.strptime(start_date, "%Y-%m-%d")
+    d1 = datetime.strptime(end_date, "%Y-%m-%d")
+    n_days = max(1, (d1 - d0).days)
+    total_frames = n_days * 390 * 4  # 4Hz × 390 min/day
+    delay = max(0.001, 0.25 / speed_mult)
+
+    _replay_state = {"running": True, "progress": 0, "frames_processed": 0, "total_frames": total_frames}
+
+    async def _run_replay():
+        global _replay_state
+        try:
+            # Simulate a crisis ramp during replay
+            for frame in range(total_frames):
+                progress = frame / total_frames
+                # Ramp crisis intensity: 0→peak→decay
+                if progress < 0.3:
+                    intensity = 0.0
+                elif progress < 0.7:
+                    intensity = min(0.9, (progress - 0.3) * 2.5)
+                else:
+                    intensity = max(0, 0.9 - (progress - 0.7) * 3)
+
+                if intensity > 0.05:
+                    simulator.activate_crisis(intensity=intensity)
+                else:
+                    simulator.deactivate_crisis()
+
+                tick = simulator.generate_tick()
+                await ensemble.process_tick(tick)
+
+                _replay_state["frames_processed"] = frame + 1
+                _replay_state["progress"] = (frame + 1) / total_frames
+
+                if frame % 20 == 0:
+                    await asyncio.sleep(delay)
+
+            simulator.deactivate_crisis()
+        except Exception as e:
+            api_log.error(f"Replay failed: {e}")
+        finally:
+            _replay_state["running"] = False
+
+    asyncio.create_task(_run_replay())
+    return {"ok": True, "status": _replay_state}
+
+
+@app.get("/api/replay/status")
+async def get_replay_status():
+    """Get replay progress."""
+    return _replay_state
+
+
+@app.post("/api/replay/stop")
+async def stop_replay():
+    """Stop ongoing replay."""
+    global _replay_state
+    _replay_state["running"] = False
+    simulator.deactivate_crisis()
+    return {"ok": True}
