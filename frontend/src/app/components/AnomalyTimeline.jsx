@@ -39,18 +39,18 @@ export default function AnomalyTimeline({ scores = {}, tickId = 0 }) {
       },
       tooltip: {
         trigger: 'axis',
-        backgroundColor: 'rgba(18, 20, 30, 0.95)',
-        borderColor: 'rgba(99, 102, 241, 0.3)',
+        backgroundColor: 'rgba(15, 15, 16, 0.97)',
+        borderColor: '#2a2a2e',
         borderWidth: 1,
         textStyle: {
-          color: '#f1f5f9',
+          color: '#e8e6e3',
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: 11,
         },
         axisPointer: {
           type: 'cross',
-          lineStyle: { color: 'rgba(99, 102, 241, 0.3)' },
-          crossStyle: { color: 'rgba(99, 102, 241, 0.3)' },
+          lineStyle: { color: 'rgba(255, 140, 0, 0.5)' },
+          crossStyle: { color: 'rgba(255, 140, 0, 0.5)' },
         },
       },
       legend: {
@@ -88,45 +88,33 @@ export default function AnomalyTimeline({ scores = {}, tickId = 0 }) {
         {
           name: 'Isolation Forest',
           type: 'line',
-          smooth: true,
+          smooth: false,
           symbol: 'none',
-          lineStyle: { width: 2, color: '#6366f1' },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(99, 102, 241, 0.25)' },
-              { offset: 1, color: 'rgba(99, 102, 241, 0)' },
-            ]),
-          },
+          lineStyle: { width: 1.2, color: '#5b8db8' },
           data: [],
         },
         {
           name: 'LSTM Autoencoder',
           type: 'line',
-          smooth: true,
+          smooth: false,
           symbol: 'none',
-          lineStyle: { width: 2, color: '#a855f7' },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(168, 85, 247, 0.2)' },
-              { offset: 1, color: 'rgba(168, 85, 247, 0)' },
-            ]),
-          },
+          lineStyle: { width: 1.2, color: '#a8a59f' },
           data: [],
         },
         {
           name: 'Combined',
           type: 'line',
-          smooth: true,
+          smooth: false,
           symbol: 'none',
-          lineStyle: { width: 2.5, color: '#f97316' },
+          lineStyle: { width: 1.8, color: '#ff8c00' },
           data: [],
         },
         {
           name: 'CISS',
           type: 'line',
-          smooth: true,
+          smooth: false,
           symbol: 'none',
-          lineStyle: { width: 2, color: '#06b6d4', type: 'dashed' },
+          lineStyle: { width: 1.2, color: '#c9a227', type: 'dashed' },
           data: [],
         },
       ],
@@ -216,9 +204,7 @@ export default function AnomalyTimeline({ scores = {}, tickId = 0 }) {
     <div className="card anomaly-chart-container">
       <div className="card-header">
         <span className="card-title">Anomaly Detection Timeline</span>
-        <span className="card-badge" style={{ background: 'rgba(99,102,241,0.15)', color: '#6366f1' }}>
-          LIVE
-        </span>
+        <span className="card-badge">LIVE</span>
       </div>
       <div ref={chartRef} className="chart-container" />
     </div>

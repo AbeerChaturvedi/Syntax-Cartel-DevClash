@@ -9,10 +9,10 @@ import { useState, useCallback } from 'react';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const SPEEDS = [
-  { mode: 'slow', label: '2 Hz', hz: 2, color: '#22c55e' },
-  { mode: 'normal', label: '4 Hz', hz: 4, color: '#6366f1' },
-  { mode: 'fast', label: '10 Hz', hz: 10, color: '#f97316' },
-  { mode: 'turbo', label: '25 Hz', hz: 25, color: '#ef4444' },
+  { mode: 'slow',   label: '2 Hz',  hz: 2,  color: 'var(--green)' },
+  { mode: 'normal', label: '4 Hz',  hz: 4,  color: 'var(--accent)' },
+  { mode: 'fast',   label: '10 Hz', hz: 10, color: 'var(--orange)' },
+  { mode: 'turbo',  label: '25 Hz', hz: 25, color: 'var(--red)' },
 ];
 
 export default function SpeedControl() {

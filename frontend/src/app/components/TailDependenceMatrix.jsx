@@ -27,7 +27,7 @@ export default function TailDependenceMatrix({ copula }) {
     let live = true;
     const fetchOnce = async () => {
       try {
-        const base = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:8000';
+        const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         const r = await fetch(`${base}/api/copula`);
         if (r.ok && live) setSnap(await r.json());
       } catch { /* silent */ }

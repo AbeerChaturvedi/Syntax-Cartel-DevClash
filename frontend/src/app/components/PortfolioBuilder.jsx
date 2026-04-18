@@ -110,9 +110,7 @@ export default function PortfolioBuilder() {
     <div className="card portfolio-builder-card">
       <div className="card-header">
         <span className="card-title">Portfolio Risk Builder</span>
-        <span className="card-badge" style={{ background: 'rgba(6,182,212,0.15)', color: '#06b6d4' }}>
-          VaR Engine
-        </span>
+        <span className="card-badge">VaR Engine</span>
       </div>
 
       {/* Quick presets */}
@@ -214,7 +212,7 @@ export default function PortfolioBuilder() {
             Computing...
           </>
         ) : (
-          '⚡ Compute Portfolio VaR'
+          'Compute Portfolio VaR'
         )}
       </motion.button>
 
@@ -235,19 +233,19 @@ export default function PortfolioBuilder() {
             <div className="portfolio-results-grid">
               <div className="portfolio-result-item">
                 <div className="portfolio-result-label">Historical VaR</div>
-                <div className="portfolio-result-value" style={{ color: '#6366f1' }}>
+                <div className="portfolio-result-value" style={{ color: '#ff8c00' }}>
                   {result.historical_var?.toFixed(4) || '—'}%
                 </div>
               </div>
               <div className="portfolio-result-item">
                 <div className="portfolio-result-label">Parametric VaR</div>
-                <div className="portfolio-result-value" style={{ color: '#a855f7' }}>
+                <div className="portfolio-result-value" style={{ color: '#c9a227' }}>
                   {result.parametric_var?.toFixed(4) || '—'}%
                 </div>
               </div>
               <div className="portfolio-result-item">
                 <div className="portfolio-result-label">Cornish-Fisher VaR</div>
-                <div className="portfolio-result-value" style={{ color: '#06b6d4' }}>
+                <div className="portfolio-result-value" style={{ color: '#5b8db8' }}>
                   {result.cornish_fisher_var?.toFixed(4) || '—'}%
                 </div>
               </div>

@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import os
+from collections import deque
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "models", "lstm_autoencoder.pt")
 
@@ -58,15 +59,13 @@ class TemporalAnomalyDetector:
 
         self.is_fitted = False
         self.threshold = 0.1  # MSE threshold for anomaly
-        self._buffer = []  # Accumulate state vectors to form sequences
-        self._mse_history = []  # Track MSE for adaptive thresholding
+        self._buffer = deque(maxlen=seq_length * 2)  # Accumulate state vectors
+        self._mse_history = deque(maxlen=500)  # Track MSE for adaptive thresholding
 
     def add_to_buffer(self, state_vector: np.ndarray):
         """Add a state vector to the temporal buffer."""
         clean = np.nan_to_num(state_vector, nan=0.0, posinf=0.0, neginf=0.0)
         self._buffer.append(clean)
-        if len(self._buffer) > self.seq_length * 2:
-            self._buffer = self._buffer[-self.seq_length * 2:]
 
     def predict(self) -> float:
         """
@@ -89,8 +88,6 @@ class TemporalAnomalyDetector:
 
         # Track MSE for adaptive thresholding
         self._mse_history.append(mse)
-        if len(self._mse_history) > 500:
-            self._mse_history = self._mse_history[-500:]
 
         # Adaptive threshold: 95th percentile of recent MSE
         if len(self._mse_history) > 50:

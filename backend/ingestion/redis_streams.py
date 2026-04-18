@@ -68,7 +68,7 @@ class RedisStreamManager:
             self._metrics["fallback_mode"] = True
             return False
 
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        redis_url = os.getenv("REDIS_URL", f"redis://{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}")
         try:
             self._redis = aioredis.from_url(
                 redis_url,

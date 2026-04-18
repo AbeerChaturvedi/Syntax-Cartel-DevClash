@@ -59,20 +59,22 @@ class ConnectionManager:
             ws_log.info("Client disconnected", extra={"client_count": len(self.active_connections)})
 
     async def broadcast(self, data: dict):
-        """Broadcast to all connected clients."""
+        """Broadcast to all connected clients — serialize once, fan out."""
         if not self.active_connections:
             return
         
         message = json.dumps(data, default=str)
         dead_connections = []
         
-        for connection in self.active_connections:
+        # Fan out concurrently instead of sequentially — reduces latency
+        # when multiple clients are connected
+        async def _send(conn):
             try:
-                await connection.send_text(message)
-            except WebSocketDisconnect:
-                dead_connections.append(connection)
-            except Exception:
-                dead_connections.append(connection)
+                await conn.send_text(message)
+            except (WebSocketDisconnect, Exception):
+                dead_connections.append(conn)
+        
+        await asyncio.gather(*[_send(c) for c in self.active_connections])
         
         for conn in dead_connections:
             self.disconnect(conn)
@@ -110,6 +112,7 @@ def _track_pipeline_latency(latency_ms: float):
 # ── PostgreSQL Persistence ──────────────────────────────────────────
 _db_pool = None
 _db_available = False
+_asset_id_cache: dict = {}  # ticker → asset_id, populated once
 
 
 async def init_db():
@@ -142,15 +145,17 @@ async def persist_scores(result: dict, tick_data: dict):
             # Batch insert for all assets — use a single transaction
             assets = result.get("assets", {})
             if assets:
+                # Populate asset_id cache once (saves 18 queries per tick)
+                if not _asset_id_cache:
+                    rows_all = await conn.fetch("SELECT asset_id, ticker FROM dim_asset")
+                    for r in rows_all:
+                        _asset_id_cache[r["ticker"]] = r["asset_id"]
+
                 rows = []
                 for ticker, adata in assets.items():
-                    # Look up asset_id (cached in a simple way)
-                    asset_row = await conn.fetchrow(
-                        "SELECT asset_id FROM dim_asset WHERE ticker = $1", ticker
-                    )
-                    if not asset_row:
+                    asset_id = _asset_id_cache.get(ticker)
+                    if asset_id is None:
                         continue
-                    asset_id = asset_row["asset_id"]
                     rows.append((
                         time_id, asset_id, 5,  # source_id=5 (Simulator)
                         adata.get("price", 0),

@@ -15,20 +15,20 @@ function formatPrice(price, assetClass) {
 }
 
 const ASSET_ICONS = {
-  EQUITY: '📊',
-  FX: '💱',
-  BOND: '🏛️',
-  RATE: '📉',
-  CRYPTO: '₿',
+  EQUITY: 'EQ',
+  FX: 'FX',
+  BOND: 'BD',
+  RATE: 'RT',
+  CRYPTO: 'CR',
 };
 
 function TickerItem({ ticker, data }) {
   const isPositive = (data.pct_change || 0) >= 0;
-  const icon = ASSET_ICONS[data.asset_class] || '📊';
+  const icon = ASSET_ICONS[data.asset_class] || 'EQ';
 
   return (
     <div className="ticker-item">
-      <span style={{ fontSize: '14px' }}>{icon}</span>
+      <span className="ticker-class-tag">{icon}</span>
       <span className="ticker-symbol">{ticker}</span>
       <span className="ticker-price">
         {formatPrice(data.price, data.asset_class)}

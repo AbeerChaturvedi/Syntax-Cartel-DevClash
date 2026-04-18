@@ -33,13 +33,13 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
     const tickers = Object.keys(assets || {});
     if (tickers.length === 0) return;
 
-    // Asset class colors
+    // Asset class colors — muted institutional palette
     const classColors = {
-      EQUITY: '#6366f1',
-      FX: '#22d3ee',
-      CRYPTO: '#f59e0b',
-      BOND: '#10b981',
-      RATE: '#8b5cf6',
+      EQUITY: '#ff8c00',
+      FX:     '#5b8db8',
+      CRYPTO: '#c9a227',
+      BOND:   '#3fa66b',
+      RATE:   '#a8a59f',
     };
 
     const W = canvas.width / dpr;
@@ -59,7 +59,7 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
           y: cy + radius * Math.sin(angle),
           tx: cx + radius * Math.cos(angle),
           ty: cy + radius * Math.sin(angle),
-          color: classColors[assetClass] || '#6366f1',
+          color: classColors[assetClass] || '#ff8c00',
           assetClass,
           pctChange: 0,
         };
@@ -107,8 +107,8 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
             // Medium → yellow
             r = 234; g = 179; b = 8;
           } else {
-            // Low → dim blue
-            r = 99; g = 102; b = 241;
+            // Low → dim accent (amber)
+            r = 255; g = 140; b = 0;
           }
 
           ctx.beginPath();
@@ -155,10 +155,10 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
       ctx.textAlign = 'left';
       let ly = H - 8;
       const legend = [
-        { color: '#6366f1', label: 'Equity' },
-        { color: '#22d3ee', label: 'FX' },
-        { color: '#f59e0b', label: 'Crypto' },
-        { color: '#10b981', label: 'Bond' },
+        { color: '#ff8c00', label: 'Equity' },
+        { color: '#5b8db8', label: 'FX' },
+        { color: '#c9a227', label: 'Crypto' },
+        { color: '#3fa66b', label: 'Bond' },
       ];
       legend.forEach((item, idx) => {
         const lx = 8 + idx * 58;

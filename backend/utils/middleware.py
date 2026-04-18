@@ -22,9 +22,18 @@ class RateLimiter:
     def __init__(self, requests_per_minute: int = 120):
         self.rpm = requests_per_minute
         self._windows: dict[str, list[float]] = defaultdict(list)
+        self._last_cleanup = 0.0
 
     def is_allowed(self, client_ip: str) -> bool:
         now = time.monotonic()
+
+        # Evict stale IPs every 120s to prevent unbounded memory growth
+        if now - self._last_cleanup > 120:
+            stale = [ip for ip, ts in self._windows.items() if not ts or now - ts[-1] > 120]
+            for ip in stale:
+                del self._windows[ip]
+            self._last_cleanup = now
+
         window = self._windows[client_ip]
 
         # Prune old entries (older than 60s)

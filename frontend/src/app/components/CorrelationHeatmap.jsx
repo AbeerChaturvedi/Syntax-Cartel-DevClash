@@ -115,7 +115,7 @@ export default function CorrelationHeatmap({ matrix = [], avgCorrelation = 0 }) 
         <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>-1.0</span>
         <div style={{
           width: '120px', height: '6px', borderRadius: '3px',
-          background: 'linear-gradient(90deg, #22c55e, #1a1d2b, #6366f1, #ef4444)',
+          background: 'linear-gradient(90deg, #3fa66b, #1a1a1a, #ff8c00, #b91c1c)',
         }} />
         <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>+1.0</span>
       </div>

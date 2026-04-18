@@ -119,7 +119,7 @@ export default function ExplainabilityPanel({ featureImportance = {}, cissBreakd
         textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px',
         display: 'flex', alignItems: 'center', gap: '8px',
       }}>
-        <span>🔍</span> Feature Attribution
+        Feature Attribution
       </div>
 
       {topFeatures.length > 0 ? (

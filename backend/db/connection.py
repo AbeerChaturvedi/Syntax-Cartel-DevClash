@@ -65,18 +65,19 @@ async def insert_alert(conn, alert_type: str, severity: str, model_source: str,
 
 
 async def get_or_create_time_id(conn, epoch_ms: int, timestamp_utc):
-    """Get or create a time dimension entry."""
-    row = await conn.fetchrow(
-        "SELECT time_id FROM dim_time WHERE epoch_ms = $1", epoch_ms
-    )
-    if row:
-        return row['time_id']
-    
+    """Get or create a time dimension entry. Uses INSERT ON CONFLICT to avoid redundant SELECT."""
     row = await conn.fetchrow("""
         INSERT INTO dim_time (epoch_ms, timestamp_utc, trading_hour, day_of_week, calendar_month, market_session)
         VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (epoch_ms) DO NOTHING
         RETURNING time_id
     """, epoch_ms, timestamp_utc,
         timestamp_utc.hour, timestamp_utc.weekday(), timestamp_utc.month,
         'OPEN' if 9 <= timestamp_utc.hour <= 16 else 'CLOSED')
+    if row:
+        return row['time_id']
+    # ON CONFLICT hit — row already existed, fetch it
+    row = await conn.fetchrow(
+        "SELECT time_id FROM dim_time WHERE epoch_ms = $1", epoch_ms
+    )
     return row['time_id']

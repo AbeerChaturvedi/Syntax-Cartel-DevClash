@@ -67,9 +67,7 @@ export default function DefaultCards({ merton = [] }) {
     <div className="card default-cards-container">
       <div className="card-header">
         <span className="card-title">Distance to Default</span>
-        <span className="card-badge" style={{ background: 'rgba(6,182,212,0.15)', color: '#06b6d4' }}>
-          MERTON
-        </span>
+        <span className="card-badge">MERTON</span>
       </div>
 
       <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '12px' }}>

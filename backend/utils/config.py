@@ -30,8 +30,11 @@ DB_POOL_MAX = _env("DB_POOL_MAX", 10, int)
 
 # ── Pipeline ────────────────────────────────────────────────────────
 DEFAULT_TICK_RATE = _env("TICK_RATE", 0.25, float)
-BATCH_SIZE = _env("BATCH_SIZE", 10, int)
-FLUSH_INTERVAL_MS = _env("FLUSH_INTERVAL_MS", 500, int)
+BATCH_SIZE = _env("BATCH_SIZE", 20, int)
+# 2s flush — institutional cadence, matches frontend display throttle.
+# Inference internals still run every tick; this only governs how often
+# a fresh ensemble payload is broadcast to the dashboard.
+FLUSH_INTERVAL_MS = _env("FLUSH_INTERVAL_MS", 2000, int)
 MAX_STREAM_LEN = _env("MAX_STREAM_LEN", 10000, int)
 
 # ── ML Model Tuning ────────────────────────────────────────────────

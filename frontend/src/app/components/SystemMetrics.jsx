@@ -84,28 +84,28 @@ export default function SystemMetrics() {
 
       <div className="sys-metrics-grid">
         {/* Throughput */}
-        <MetricItem 
-          label="Throughput" 
-          value={metrics.ticks_per_second?.toFixed(1)} 
-          unit="tps" 
-          color="#6366f1" 
+        <MetricItem
+          label="Throughput"
+          value={metrics.ticks_per_second?.toFixed(1)}
+          unit="tps"
+          color="var(--accent)"
         />
-        <MetricItem 
-          label="Latency" 
-          value={metrics.avg_pipeline_latency_ms?.toFixed(1)} 
-          unit="ms" 
-          color={metrics.avg_pipeline_latency_ms > 100 ? '#f97316' : '#22c55e'} 
+        <MetricItem
+          label="Latency"
+          value={metrics.avg_pipeline_latency_ms?.toFixed(1)}
+          unit="ms"
+          color={metrics.avg_pipeline_latency_ms > 100 ? 'var(--orange)' : 'var(--green)'}
         />
-        <MetricItem 
-          label="Uptime" 
-          value={formatUptime(metrics.uptime_seconds || 0)} 
-          color="var(--text-secondary)" 
-          mono={false} 
+        <MetricItem
+          label="Uptime"
+          value={formatUptime(metrics.uptime_seconds || 0)}
+          color="var(--text-secondary)"
+          mono={false}
         />
-        <MetricItem 
-          label="Clients" 
-          value={metrics.connected_clients || 0} 
-          color="#06b6d4" 
+        <MetricItem
+          label="Clients"
+          value={metrics.connected_clients || 0}
+          color="var(--blue)"
         />
       </div>
 

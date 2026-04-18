@@ -35,19 +35,32 @@ class EnsembleOrchestrator:
         6. Return unified dashboard payload
     """
 
-    def __init__(self, batch_size: int = 10, flush_interval_ms: int = 500):
+    def __init__(self, batch_size: int = 20, flush_interval_ms: int = 2000):
         self.batch_size = batch_size
         self.flush_interval_ms = flush_interval_ms
         self._batch_buffer: List[dict] = []
         self._last_flush = time.time()
         self._latest_scores: Dict = {}
         self._alert_history: deque = deque(maxlen=100)
-        
+
         # Ensemble weights — pulled from config so .env tuning applies
-        self.if_weight = ENSEMBLE_IF_WEIGHT
-        self.lstm_weight = ENSEMBLE_LSTM_WEIGHT
-        self.ciss_weight = ENSEMBLE_CISS_WEIGHT
-        self.copula_weight = ENSEMBLE_COPULA_WEIGHT
+        # Normalize to sum to 1.0
+        raw_total = ENSEMBLE_IF_WEIGHT + ENSEMBLE_LSTM_WEIGHT + ENSEMBLE_CISS_WEIGHT + ENSEMBLE_COPULA_WEIGHT
+        self.if_weight = ENSEMBLE_IF_WEIGHT / raw_total
+        self.lstm_weight = ENSEMBLE_LSTM_WEIGHT / raw_total
+        self.ciss_weight = ENSEMBLE_CISS_WEIGHT / raw_total
+        self.copula_weight = ENSEMBLE_COPULA_WEIGHT / raw_total
+
+        # EMA smoothing — institutional cadence, not HFT flicker.
+        # alpha=0.04 → ~50-tick effective window before a number visibly settles
+        self._ema_alpha = 0.04
+        self._ema: Dict[str, float] = {}
+
+        # Rolling 1-minute window of combined scores → "display_score"
+        # is the median of the last minute. This is the hero number a
+        # human looks at; raw combined_anomaly is shown as the secondary
+        # ghost reading for traders who want the instantaneous value.
+        self._display_window: deque = deque(maxlen=60)
 
         # Alert thresholds
         self.ALERT_THRESHOLDS = {
@@ -72,6 +85,14 @@ class EnsembleOrchestrator:
             return await self._flush_batch()
         
         return None
+
+    def _smooth(self, key: str, raw: float) -> float:
+        """Exponential moving average to reduce tick-to-tick jitter."""
+        if key not in self._ema:
+            self._ema[key] = raw
+        else:
+            self._ema[key] = self._ema_alpha * raw + (1 - self._ema_alpha) * self._ema[key]
+        return self._ema[key]
 
     async def _flush_batch(self) -> Dict:
         """Process accumulated batch through all models."""
@@ -118,17 +139,36 @@ class EnsembleOrchestrator:
         copula_score = float(copula_snap.get("max_tail_dependence", 0.0) or 0.0)
 
         # 5. Weighted ensemble
-        combined_anomaly = (
+        raw_combined = (
             self.if_weight * if_score +
             self.lstm_weight * lstm_score +
             self.ciss_weight * ciss_score_val +
             self.copula_weight * copula_score
         )
 
-        # 6. Determine alert level
+        # 5b. EMA smoothing to reduce tick-to-tick jitter
+        if_score = self._smooth("if", if_score)
+        lstm_score = self._smooth("lstm", lstm_score)
+        ciss_score_val = self._smooth("ciss", ciss_score_val)
+        copula_score = self._smooth("copula", copula_score)
+        combined_anomaly = self._smooth("combined", raw_combined)
+
+        # 5c. Rolling 1-minute display score — the hero number.
+        # Median of the last 60 ticks resists single-tick spikes that
+        # would whipsaw a trader's eye. Severity is derived from this
+        # so the threshold gate doesn't flicker between buckets.
+        self._display_window.append(combined_anomaly)
+        sorted_window = sorted(self._display_window)
+        n = len(sorted_window)
+        display_score = (
+            sorted_window[n // 2] if n % 2
+            else 0.5 * (sorted_window[n // 2 - 1] + sorted_window[n // 2])
+        )
+
+        # 6. Determine alert level off the smoothed display score
         severity = "NORMAL"
         for level, threshold in sorted(self.ALERT_THRESHOLDS.items(), key=lambda x: x[1], reverse=True):
-            if combined_anomaly >= threshold:
+            if display_score >= threshold:
                 severity = level
                 break
 
@@ -158,7 +198,10 @@ class EnsembleOrchestrator:
                 pass
 
         # 8. Feature importance for explainability
-        feature_importance = anomaly_detector_if.get_feature_importance(state_vector)
+        try:
+            feature_importance = anomaly_detector_if.get_feature_importance(state_vector)
+        except Exception:
+            feature_importance = {}
 
         # 9. Compute aggregate SRISK
         total_srisk = sum(m.get("srisk_bn", 0) for m in merton_results)
@@ -177,12 +220,15 @@ class EnsembleOrchestrator:
             "crisis_mode": latest_tick.get("crisis_mode", False),
 
             # Core scores
+            # display_score = 1-min median (hero number, stable enough to act on)
+            # combined_anomaly = instantaneous EMA reading (shown as ghost)
             "scores": {
                 "isolation_forest": round(if_score, 6),
                 "lstm_autoencoder": round(lstm_score, 6),
                 "ciss": round(ciss_score_val, 6),
                 "copula_tail": round(copula_score, 6),
                 "combined_anomaly": round(combined_anomaly, 6),
+                "display_score": round(display_score, 6),
                 "severity": severity,
             },
             # Copula snapshot — tail dependence matrix + joint-crash prob

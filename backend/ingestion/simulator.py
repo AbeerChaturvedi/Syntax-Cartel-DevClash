@@ -9,6 +9,7 @@ import json
 import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from collections import deque
 
 
 class MarketSimulator:
@@ -45,7 +46,7 @@ class MarketSimulator:
         self.crisis_start_time = None
         self.tick_count = 0
         self._correlation_matrix = self._build_normal_correlation()
-        self._history: Dict[str, List[float]] = {k: [v["base"]] for k, v in self.ASSETS.items()}
+        self._history: Dict[str, deque] = {k: deque([v["base"]], maxlen=300) for k, v in self.ASSETS.items()}
 
     def _build_normal_correlation(self) -> np.ndarray:
         """Build a realistic cross-asset correlation matrix for normal conditions."""
@@ -141,13 +142,12 @@ class MarketSimulator:
             new_price = old_price * np.exp(ret)
             self.prices[ticker] = new_price
 
-            # Track history (keep last 300 for rolling calcs)
+            # Track history (deque auto-trims to 300)
             self._history[ticker].append(new_price)
-            if len(self._history[ticker]) > 300:
-                self._history[ticker] = self._history[ticker][-300:]
 
             # Compute additional features
-            returns = np.diff(np.log(self._history[ticker][-60:])) if len(self._history[ticker]) > 2 else [0]
+            hist = list(self._history[ticker])[-60:]
+            returns = np.diff(np.log(hist)) if len(hist) > 2 else [0]
             rolling_vol = float(np.std(returns) * np.sqrt(252 * 390)) if len(returns) > 1 else 0
             price_change = new_price - old_price
             pct_change = (price_change / old_price) * 100
@@ -175,7 +175,7 @@ class MarketSimulator:
         if len(self._history[tickers[0]]) > 30:
             returns_matrix = []
             for t in tickers:
-                r = np.diff(np.log(self._history[t][-31:]))
+                r = np.diff(np.log(list(self._history[t])[-31:]))
                 returns_matrix.append(r)
             returns_matrix = np.array(returns_matrix)
             actual_corr = np.corrcoef(returns_matrix)
@@ -200,7 +200,7 @@ class MarketSimulator:
                 features.extend([0, 0, 0, 0])
                 continue
             
-            returns = np.diff(np.log(hist[-60:]))
+            returns = np.diff(np.log(list(hist)[-60:]))
             features.append(float(returns[-1]) if len(returns) > 0 else 0)  # Latest return
             features.append(float(np.std(returns)) if len(returns) > 1 else 0)  # Vol
             features.append(float(np.mean(returns)) if len(returns) > 0 else 0)  # Mean return

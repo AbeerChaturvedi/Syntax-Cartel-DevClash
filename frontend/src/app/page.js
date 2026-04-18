@@ -89,7 +89,7 @@ export default function Dashboard() {
         <div className="loading-hint">
           Ensure the backend is running:<br />
           <code className="loading-code">
-            cd backend && uvicorn main:app --reload
+            docker compose up --build
           </code>
         </div>
       </div>
@@ -143,7 +143,13 @@ export default function Dashboard() {
         <div className="card contagion-card">
           <div className="card-header">
             <span className="card-title">Contagion Network</span>
-            <span className="card-badge" style={{ background: crisisMode ? 'rgba(239,68,68,0.15)' : 'rgba(99,102,241,0.15)', color: crisisMode ? '#ef4444' : '#6366f1' }}>
+            <span
+              className="card-badge"
+              style={{
+                color: crisisMode ? 'var(--red)' : 'var(--text-tertiary)',
+                borderColor: crisisMode ? 'var(--red)' : 'var(--border-active)',
+              }}
+            >
               {crisisMode ? 'CONTAGION' : 'STABLE'}
             </span>
           </div>
@@ -184,12 +190,10 @@ export default function Dashboard() {
           <div className="card">
             <div className="card-header">
               <span className="card-title">Model Explainability</span>
-              <span className="card-badge" style={{ background: 'rgba(168,85,247,0.15)', color: '#a855f7' }}>
-                XAI
-              </span>
+              <span className="card-badge">XAI</span>
             </div>
-            <ExplainabilityPanel 
-              featureImportance={featureImportance} 
+            <ExplainabilityPanel
+              featureImportance={featureImportance}
               cissBreakdown={cissBreakdown}
             />
           </div>

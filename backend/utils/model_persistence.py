@@ -120,8 +120,13 @@ class CheckpointManager:
             if not (mp.exists() and sp.exists()):
                 return False
             anomaly_detector_if.model = joblib.load(mp)
-            anomaly_detector_if.scaler = joblib.load(sp)
-            anomaly_detector_if.is_fitted = True
+            scaler = joblib.load(sp)
+            # Validate the scaler is actually fitted before using it
+            if hasattr(scaler, 'mean_') and scaler.mean_ is not None:
+                anomaly_detector_if.scaler = scaler
+                anomaly_detector_if.is_fitted = True
+            else:
+                anomaly_detector_if._auto_train()
             return True
         except Exception:
             return False

@@ -109,6 +109,7 @@ class TCopulaTailDependence:
         self._rho: np.ndarray = np.eye(len(self.SEGMENTS))
         self._lambda_L: np.ndarray = np.zeros((len(self.SEGMENTS), len(self.SEGMENTS)))
         self._warm: bool = False
+        self._update_counter: int = 0
 
     # ── public API ──────────────────────────────────────────────────
     def update(self, tick_assets: dict) -> Dict:
@@ -130,18 +131,15 @@ class TCopulaTailDependence:
         if min_len < 50:
             return self._snapshot(warmup=True, observations=min_len)
 
-        # 4. Rank-transform residuals → pseudo-observations u ∈ (0,1)
-        U = self._pseudo_observations(min_len)
-
-        # 5. Estimate correlation from Kendall's τ (robust to fat tails)
-        self._rho = self._kendall_rho(U)
-
-        # 6. Profile-MLE for ν (degrees of freedom)
-        self._nu = self._fit_nu(U, self._rho)
-
-        # 7. Compute lower-tail dependence matrix
-        self._lambda_L = self._tail_dependence_matrix(self._rho, self._nu)
-        self._warm = True
+        # 4-7: Heavy copula fitting (kendalltau + MLE + matrix ops)
+        # Only recompute every 10 ticks — results are stable tick-to-tick
+        self._update_counter += 1
+        if self._update_counter % 10 == 1 or not self._warm:
+            U = self._pseudo_observations(min_len)
+            self._rho = self._kendall_rho(U)
+            self._nu = self._fit_nu(U, self._rho)
+            self._lambda_L = self._tail_dependence_matrix(self._rho, self._nu)
+            self._warm = True
 
         return self._snapshot(warmup=False, observations=min_len)
 

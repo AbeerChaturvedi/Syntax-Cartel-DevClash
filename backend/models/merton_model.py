@@ -85,12 +85,15 @@ class MertonModel:
         vol_data = list(self._vol_buffers[ticker])
 
         if len(vol_data) < 10:
-            # Not enough data; return baseline estimate
+            # Not enough data; return varied baseline estimates per institution
+            base_dd = {"JPM": 3.8, "GS": 3.2, "BAC": 3.5, "C": 2.9, "MS": 3.1}
+            dd = base_dd.get(ticker, 3.5)
+            pd_val = float(norm.cdf(-dd))
             return {
                 "ticker": ticker,
                 "name": profile["name"],
-                "distance_to_default": 4.5,  # Healthy baseline
-                "prob_default": 0.000003,
+                "distance_to_default": dd,
+                "prob_default": round(pd_val, 6),
                 "srisk_bn": 0.0,
                 "lrmes": 0.05,
                 "asset_volatility": 0.15,
@@ -120,6 +123,10 @@ class MertonModel:
         A = E / (1 - leverage)  # Total assets
         asset_vol = equity_vol * (E / A)
 
+        # Floor asset vol — for highly leveraged banks E/A is tiny (0.12),
+        # producing unrealistically low asset_vol and DD → 10+
+        asset_vol = max(asset_vol, 0.08)
+
         # Step 2: Compute default point (Moody's KMV convention)
         total_debt = A * leverage
         st_debt = total_debt * (1 - profile["lt_debt_ratio"])
@@ -131,8 +138,8 @@ class MertonModel:
         numerator = np.log(A / L) + (drift - 0.5 * asset_vol ** 2) * self.T
         denominator = asset_vol * np.sqrt(self.T)
         
-        DD = numerator / denominator if denominator > 1e-8 else 10.0
-        DD = float(np.clip(DD, -2.0, 10.0))
+        DD = numerator / denominator if denominator > 1e-8 else 6.0
+        DD = float(np.clip(DD, -2.0, 6.0))
 
         # Step 4: Probability of Default
         PD = float(norm.cdf(-DD))

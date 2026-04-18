@@ -32,6 +32,8 @@ class CISSScorer:
             "volatility": deque(maxlen=window_size),
         }
         self._score_history = deque(maxlen=1000)
+        self._cached_corr = np.eye(n_segments)
+        self._corr_tick_counter = 0
 
     def update(self, tick_data: dict) -> float:
         """
@@ -74,8 +76,11 @@ class CISSScorer:
             self._empirical_cdf("volatility"),
         ])
 
-        # Step 2: Compute rolling cross-correlation matrix
-        C = self._cross_correlation_matrix()
+        # Step 2: Recompute cross-correlation every 10 ticks (expensive O(n*seg) op)
+        self._corr_tick_counter += 1
+        if self._corr_tick_counter % 10 == 0:
+            self._cached_corr = self._cross_correlation_matrix()
+        C = self._cached_corr
 
         # Step 3: Correlation-weighted quadratic form
         # CISS = sqrt(z^T * C * z) / sqrt(n) to normalize

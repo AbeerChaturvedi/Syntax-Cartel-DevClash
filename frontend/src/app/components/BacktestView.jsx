@@ -67,8 +67,8 @@ function MiniROC({ fpr, tpr, auc }) {
 
     // ROC curve
     const gradient = ctx.createLinearGradient(0, h, w, 0);
-    gradient.addColorStop(0, '#6366f1');
-    gradient.addColorStop(1, '#a855f7');
+    gradient.addColorStop(0, '#ff8c00');
+    gradient.addColorStop(1, '#c9a227');
     ctx.strokeStyle = gradient;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
@@ -82,7 +82,7 @@ function MiniROC({ fpr, tpr, auc }) {
 
     // Fill under curve
     ctx.globalAlpha = 0.08;
-    ctx.fillStyle = '#6366f1';
+    ctx.fillStyle = '#ff8c00';
     ctx.lineTo(w, h);
     ctx.lineTo(0, h);
     ctx.closePath();
@@ -184,9 +184,7 @@ export default function BacktestView() {
     <div className="card backtest-card">
       <div className="card-header">
         <span className="card-title">Backtest Validation</span>
-        <span className="card-badge" style={{ background: 'rgba(168,85,247,0.15)', color: '#a855f7' }}>
-          ROC / AUC
-        </span>
+        <span className="card-badge">ROC / AUC</span>
       </div>
 
       {/* Crisis selector */}
@@ -227,7 +225,7 @@ export default function BacktestView() {
             Starting…
           </>
         ) : (
-          '▶ Run Backtest'
+          'Run Backtest'
         )}
       </motion.button>
 

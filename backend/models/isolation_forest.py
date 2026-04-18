@@ -53,7 +53,12 @@ class AnomalyDetectorIF:
             state_vector = state_vector.reshape(1, -1)
 
         state_vector = self._sanitize(state_vector)
-        scaled = self.scaler.transform(state_vector)
+        try:
+            scaled = self.scaler.transform(state_vector)
+        except Exception:
+            # Checkpoint may have saved an unfitted scaler — retrain
+            self._auto_train()
+            scaled = self.scaler.transform(state_vector)
 
         # decision_function returns negative for anomalies
         raw_score = self.model.decision_function(scaled)[0]
@@ -70,15 +75,19 @@ class AnomalyDetectorIF:
             self._auto_train()
 
         state_vectors = self._sanitize(state_vectors)
-        scaled = self.scaler.transform(state_vectors)
+        try:
+            scaled = self.scaler.transform(state_vectors)
+        except Exception:
+            self._auto_train()
+            scaled = self.scaler.transform(state_vectors)
         raw_scores = self.model.decision_function(scaled)
         anomaly_scores = 1.0 / (1.0 + np.exp(5 * raw_scores))
         return np.clip(anomaly_scores, 0, 1)
 
     def get_feature_importance(self, state_vector: np.ndarray, feature_names: list = None) -> dict:
         """
-        Approximate feature importance using perturbation analysis.
-        Returns dict of feature_name -> contribution_score.
+        Approximate feature importance using vectorized perturbation analysis.
+        Returns dict of feature_name -> contribution_score (top 10).
         """
         if not self.is_fitted:
             self._auto_train()
@@ -86,20 +95,26 @@ class AnomalyDetectorIF:
         if state_vector.ndim == 1:
             state_vector = state_vector.reshape(1, -1)
 
+        n_features = state_vector.shape[1]
         base_score = self.predict(state_vector[0])
-        importances = {}
 
-        for i in range(state_vector.shape[1]):
-            perturbed = state_vector.copy()
-            perturbed[0, i] = 0  # Zero out feature
-            perturbed_score = self.predict(perturbed[0])
-            importance = abs(base_score - perturbed_score)
-            
+        # Build all perturbations at once (N × features matrix)
+        # instead of calling predict() N times
+        perturbed_batch = np.tile(state_vector, (n_features, 1))
+        for i in range(n_features):
+            perturbed_batch[i, i] = 0.0
+
+        batch_scores = self.predict_batch(perturbed_batch)
+        diffs = np.abs(base_score - batch_scores)
+
+        # Build result dict — top 10 only
+        pairs = []
+        for i in range(n_features):
             name = feature_names[i] if feature_names and i < len(feature_names) else f"feature_{i}"
-            importances[name] = round(float(importance), 6)
+            pairs.append((name, round(float(diffs[i]), 6)))
 
-        # Sort by importance
-        return dict(sorted(importances.items(), key=lambda x: x[1], reverse=True)[:10])
+        pairs.sort(key=lambda x: x[1], reverse=True)
+        return dict(pairs[:10])
 
     def _auto_train(self):
         """Generate synthetic normal data and train."""

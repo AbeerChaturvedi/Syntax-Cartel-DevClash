@@ -1,116 +1,115 @@
 /**
- * CISSGauge — Composite Indicator of Systemic Stress
- * Animated arc gauge with dynamic color transitions.
+ * CISSGauge — Composite Indicator of Systemic Stress.
+ * Institutional readout: flat colors, no glow, slow transitions
+ * tuned to the 2s display flush so the needle does not whipsaw.
  */
 'use client';
 
 import { useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 
 function getColor(score) {
-  if (score < 0.3) return { color: '#22c55e', bg: 'rgba(34,197,94,0.15)', label: 'NORMAL' };
-  if (score < 0.5) return { color: '#eab308', bg: 'rgba(234,179,8,0.15)', label: 'ELEVATED' };
-  if (score < 0.7) return { color: '#f97316', bg: 'rgba(249,115,22,0.15)', label: 'HIGH' };
-  if (score < 0.85) return { color: '#ef4444', bg: 'rgba(239,68,68,0.15)', label: 'SEVERE' };
-  return { color: '#dc2626', bg: 'rgba(220,38,38,0.2)', label: 'CRITICAL' };
+  if (score < 0.30) return { color: '#3fa66b', label: 'NORMAL' };
+  if (score < 0.50) return { color: '#c9a227', label: 'ELEVATED' };
+  if (score < 0.70) return { color: '#d97706', label: 'HIGH' };
+  if (score < 0.85) return { color: '#c2410c', label: 'SEVERE' };
+  return { color: '#b91c1c', label: 'CRITICAL' };
 }
 
 export default function CISSGauge({ cissScore = 0, severity = 'NORMAL' }) {
-  const score = Math.max(0, Math.min(1, cissScore));
-  const { color, bg, label } = useMemo(() => getColor(score), [score]);
+  const score = Math.max(0, Math.min(1, Number(cissScore) || 0));
+  const { color, label } = useMemo(() => getColor(score), [score]);
 
-  // Arc geometry
-  const cx = 100, cy = 95;
-  const radius = 75;
-  const startAngle = Math.PI;
-  const endAngle = 2 * Math.PI;
-  const sweepAngle = startAngle + (endAngle - startAngle) * score;
+  const cx = 100;
+  const cy = 100;
+  const radius = 78;
+  const arcLen = Math.PI * radius;
+  const valueDash = arcLen * score;
 
-  const arcPath = (angle) => {
-    const x = cx + radius * Math.cos(angle);
-    const y = cy + radius * Math.sin(angle);
-    return { x, y };
-  };
+  const startX = cx - radius;
+  const endX = cx + radius;
 
-  const start = arcPath(startAngle);
-  const end = arcPath(sweepAngle);
-  const largeArc = score > 0.5 ? 1 : 0;
+  // Needle (single tick) along arc
+  const needleAngle = Math.PI * (1 - score);
+  const needleX = cx + radius * Math.cos(needleAngle);
+  const needleY = cy - radius * Math.sin(needleAngle);
 
-  const bgEnd = arcPath(endAngle);
+  const bgArc = `M ${startX} ${cy} A ${radius} ${radius} 0 0 1 ${endX} ${cy}`;
 
   return (
     <div className="card ciss-gauge-container">
       <div className="card-header">
         <span className="card-title">Systemic Stress Index</span>
-        <span className="card-badge" style={{ background: bg, color }}>
-          CISS
-        </span>
+        <span className="card-badge">CISS</span>
       </div>
+
       <div className="gauge-wrapper">
-        <svg className="gauge-svg" viewBox="0 0 200 110">
+        <svg className="gauge-svg" viewBox="0 0 200 120" aria-label="CISS gauge">
+          {/* Tick marks at 0, 25, 50, 75, 100 */}
+          {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+            const a = Math.PI * (1 - t);
+            const ix = cx + (radius - 10) * Math.cos(a);
+            const iy = cy - (radius - 10) * Math.sin(a);
+            const ox = cx + (radius + 4) * Math.cos(a);
+            const oy = cy - (radius + 4) * Math.sin(a);
+            return (
+              <line
+                key={t}
+                x1={ix}
+                y1={iy}
+                x2={ox}
+                y2={oy}
+                stroke="#2a2a2a"
+                strokeWidth="1"
+              />
+            );
+          })}
+
           {/* Background arc */}
           <path
-            d={`M ${start.x} ${start.y} A ${radius} ${radius} 0 1 1 ${bgEnd.x} ${bgEnd.y}`}
+            d={bgArc}
             fill="none"
-            stroke="rgba(255,255,255,0.06)"
+            stroke="#1a1a1a"
             strokeWidth="10"
-            strokeLinecap="round"
+            strokeLinecap="butt"
           />
-          {/* Value arc */}
-          {score > 0.001 && (
-            <motion.path
-              d={`M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y}`}
+
+          {/* Value arc — butt caps + slow transition kill the visual jitter */}
+          {score > 0.005 && (
+            <path
+              d={bgArc}
               fill="none"
               stroke={color}
               strokeWidth="10"
-              strokeLinecap="round"
-              initial={{ pathLength: 0 }}
-              animate={{ pathLength: 1 }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-              style={{
-                filter: `drop-shadow(0 0 8px ${color}60)`,
-              }}
+              strokeLinecap="butt"
+              strokeDasharray={`${valueDash} ${arcLen}`}
+              style={{ transition: 'stroke-dasharray 1.4s ease-out, stroke 1.4s ease-out' }}
             />
           )}
-          {/* Needle dot */}
-          <motion.circle
-            cx={end.x}
-            cy={end.y}
-            r="5"
+
+          {/* Needle marker — small filled square, no glow */}
+          <rect
+            x={needleX - 3}
+            y={needleY - 3}
+            width="6"
+            height="6"
             fill={color}
-            animate={{ cx: end.x, cy: end.y }}
-            transition={{ duration: 0.3 }}
-            style={{ filter: `drop-shadow(0 0 6px ${color})` }}
+            style={{ transition: 'x 1.4s ease-out, y 1.4s ease-out, fill 1.4s ease-out' }}
           />
+
+          {/* Hub */}
+          <circle cx={cx} cy={cy} r="2.5" fill="#3a3a3a" />
         </svg>
 
-        <motion.div
-          className="gauge-value"
-          style={{ color }}
-          key={Math.round(score * 100)}
-          initial={{ scale: 1.1, opacity: 0.7 }}
-          animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.2 }}
-        >
+        <div className="gauge-value" style={{ color }}>
           {(score * 100).toFixed(1)}
-          <span style={{ fontSize: '20px', opacity: 0.6 }}>%</span>
-        </motion.div>
+          <span className="gauge-value-pct">%</span>
+        </div>
 
-        <div className="gauge-label">Composite Stress Score</div>
+        <div className="gauge-label">Composite Stress Score · 1-min median</div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={label}
-            className="gauge-severity"
-            style={{ background: bg, color, border: `1px solid ${color}30` }}
-            initial={{ y: 5, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -5, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            {label}
-          </motion.div>
-        </AnimatePresence>
+        <div className="gauge-severity" style={{ color, borderColor: color }}>
+          {label}
+        </div>
       </div>
     </div>
   );
