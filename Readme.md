@@ -4,7 +4,7 @@
 
 > **DevClash 2026 — Team Syntax Cartel**
 
-An event-driven, production-grade system that detects systemic financial crises **in real-time** using an ensemble of four ML/quant models processing **18 correlated assets at 4–25 Hz**, with Redis Streams event-driven architecture, PostgreSQL star-schema persistence, and a 60fps WebSocket-driven dashboard.
+An event-driven, production-grade system that detects systemic financial crises **in real-time** using an ensemble of Six ML/quant models processing **18 correlated assets at 4–25 Hz**, with Redis Streams event-driven architecture, PostgreSQL star-schema persistence, and a 60fps WebSocket-driven dashboard.
 
 ---
 
