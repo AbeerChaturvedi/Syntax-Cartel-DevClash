@@ -64,6 +64,7 @@ RATE_LIMIT_PER_MINUTE = _env("RATE_LIMIT_PER_MINUTE", 120, int)
 # ── Live Data ───────────────────────────────────────────────────────
 FINNHUB_API_KEY = _env("FINNHUB_API_KEY", "")
 POLYGON_API_KEY = _env("POLYGON_API_KEY", "")
+NEWSDATA_API_KEY = _env("NEWSDATA_API_KEY", "")
 DATA_MODE = _env("DATA_MODE", "simulator")  # "simulator" | "finnhub" | "hybrid"
 
 # ── Speed Presets ───────────────────────────────────────────────────

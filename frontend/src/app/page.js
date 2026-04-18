@@ -31,6 +31,7 @@ import TailDependenceMatrix from './components/TailDependenceMatrix';
 import PortfolioBuilder from './components/PortfolioBuilder';
 import BacktestView from './components/BacktestView';
 import ReplayController from './components/ReplayController';
+import MarketNews from './components/MarketNews';
 
 export default function Dashboard() {
   const { isConnected, dashboardData, connectionAttempts } = useWebSocket();
@@ -197,6 +198,9 @@ export default function Dashboard() {
               cissBreakdown={cissBreakdown}
             />
           </div>
+
+          {/* Market News */}
+          <MarketNews />
 
           {/* System Health Metrics */}
           <SystemMetrics />
