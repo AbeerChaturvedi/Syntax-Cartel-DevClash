@@ -1,1 +1,1 @@
-this the Repo madE by team syntax cartel for Devclash With help.
+This is the repository for devclash hackathon.
