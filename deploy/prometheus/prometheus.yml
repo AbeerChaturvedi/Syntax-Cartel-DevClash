@@ -1,0 +1,27 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: velure
+    env:     prod
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []   # Wire Alertmanager URL here when deployed
+
+scrape_configs:
+  - job_name: velure-backend
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["backend:8000"]
+        labels:
+          service: backend
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

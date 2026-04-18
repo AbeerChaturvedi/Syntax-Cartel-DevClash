@@ -1,0 +1,73 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  Project Velure — TLS / reverse-proxy overlay
+#
+#  Adds Caddy in front of backend (8000) and frontend (3000).
+#  Caddy auto-provisions Let's Encrypt certs on first boot.
+#
+#  Usage:
+#    docker compose --env-file .env.prod \
+#      -f docker-compose.prod.yml \
+#      -f docker-compose.tls.yml \
+#      up -d
+#
+#  Required env vars (set in .env.prod):
+#    DOMAIN_API   — e.g. velure.example.com
+#    DOMAIN_APP   — e.g. app.velure.example.com
+#    ACME_EMAIL   — Let's Encrypt contact email
+#
+#  When this overlay is in use, the backend + frontend ports stop being
+#  bound to host loopback (the proxy speaks to them over the docker net).
+# ═══════════════════════════════════════════════════════════════════════
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: always
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DOMAIN_API: ${DOMAIN_API:?DOMAIN_API is required (e.g. velure.example.com)}
+      DOMAIN_APP: ${DOMAIN_APP:?DOMAIN_APP is required (e.g. app.velure.example.com)}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required (Let's Encrypt contact)}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks:
+      - velure_internal
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "5" }
+
+  # When TLS overlay is active, the apps no longer publish ports.
+  # Caddy fronts them over the internal network.
+  backend:
+    ports: []
+  frontend:
+    ports: []
+
+volumes:
+  caddy_data:
+  caddy_config:

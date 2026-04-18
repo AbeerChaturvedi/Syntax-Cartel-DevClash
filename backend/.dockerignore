@@ -1,12 +1,45 @@
-__pycache__
-*.pyc
-*.pyo
-.env
+# VCS / IDE
 .git
 .gitignore
-.venv
-venv
-data/
-*.egg-info
-.pytest_cache
-.mypy_cache
+.idea
+.vscode
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Local data — checkpoints, replays, models live in a runtime volume
+data/checkpoints/*
+data/historical/*
+data/models/*
+
+# Logs / temp
+*.log
+*.swp
+.DS_Store
+
+# Local env (must come from runtime secrets, never baked in)
+.env
+.env.local
+.env.*.local
+
+# Tests / docs
+tests/
+docs/
+
+# Docker meta
+Dockerfile
+.dockerignore
+docker-compose*.yml

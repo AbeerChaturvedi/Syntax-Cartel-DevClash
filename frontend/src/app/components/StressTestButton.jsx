@@ -10,10 +10,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const PRESETS = [
-  { id: 'lehman_2008', label: '2008 Lehman', tag: 'CREDIT', desc: 'Credit contagion, interbank freeze', color: 'var(--red)' },
-  { id: 'covid_2020', label: '2020 COVID', tag: 'LIQUID', desc: 'Liquidity crisis, VIX spike to 82', color: 'var(--orange)' },
-  { id: 'svb_2023', label: '2023 SVB', tag: 'RATES', desc: 'Regional bank run, rate shock', color: 'var(--yellow)' },
-  { id: 'flash_crash', label: 'Flash Crash', tag: 'HFT', desc: 'HFT liquidity vacuum, 6-min drop', color: 'var(--accent)' },
+  { id: 'lehman_2008', label: '2008 Lehman', tag: 'CREDIT', desc: 'Credit contagion, interbank freeze', color: '#ef4444' },
+  { id: 'covid_2020', label: '2020 COVID', tag: 'LIQUID', desc: 'Liquidity crisis, VIX spike to 82', color: '#f97316' },
+  { id: 'svb_2023', label: '2023 SVB', tag: 'RATES', desc: 'Regional bank run, rate shock', color: '#eab308' },
+  { id: 'flash_crash', label: 'Flash Crash', tag: 'HFT', desc: 'HFT liquidity vacuum, 6-min drop', color: '#a855f7' },
 ];
 
 export default function StressTestButton({ crisisMode = false }) {
@@ -92,14 +92,14 @@ export default function StressTestButton({ crisisMode = false }) {
             animate={{ scale: [1, 1.02, 1] }}
             transition={{ repeat: Infinity, duration: 1.5 }}
           >
-            {preset ? `${preset.label}` : 'CRISIS'} · ACTIVE
+            ⚠ {preset ? `${preset.label}` : 'CRISIS'} ACTIVE
           </motion.button>
           <button
             className="deactivate-btn"
             onClick={deactivateCrisis}
             disabled={loading}
           >
-            Restore Normal
+            ✓ Restore Normal
           </button>
         </div>
       </div>
@@ -155,10 +155,10 @@ export default function StressTestButton({ crisisMode = false }) {
               className="crisis-preset-btn custom"
               onClick={activateCustom}
               disabled={loading}
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
             >
-              <span className="preset-tag" style={{ color: 'var(--accent)' }}>CUSTOM</span>
+              <span className="preset-emoji">🎯</span>
               <span className="preset-label">Custom</span>
               <span className="preset-desc">85% intensity, 45s</span>
             </motion.button>

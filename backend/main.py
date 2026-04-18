@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -38,7 +38,35 @@ from ingestion.redis_streams import redis_streams
 from ingestion.watermark import watermark
 from models.ensemble import ensemble
 from utils.alerting import alert_dispatcher
-from utils.model_persistence import get_checkpoint_manager
+from utils.model_persistence import get_checkpoint_manager, CHECKPOINT_VERSION
+
+
+# ── Model lineage + audit hook ──────────────────────────────────────
+# We compute an opaque hash over the active checkpoint so that every
+# audit_log row stamps the *exact* model state that produced it. If no
+# checkpoint exists yet (cold start) the hash is "cold-start".
+def _compute_model_version_and_hash() -> tuple[str, str, dict]:
+    """Return (model_version, checkpoint_hash, components_dict)."""
+    import hashlib
+    from pathlib import Path
+    from utils.config import MODEL_CHECKPOINT_DIR
+    cur = Path(MODEL_CHECKPOINT_DIR) / "current"
+    components = {
+        "if": True, "lstm": True, "ciss": True, "merton": True, "copula": True,
+    }
+    if not cur.exists():
+        return (CHECKPOINT_VERSION, "cold-start", components)
+    h = hashlib.sha256()
+    for f in sorted(cur.glob("*")):
+        if f.is_file():
+            h.update(f.name.encode())
+            h.update(b"\0")
+            h.update(f.read_bytes())
+    return (CHECKPOINT_VERSION, h.hexdigest(), components)
+
+
+_active_model_version = CHECKPOINT_VERSION
+_active_checkpoint_hash = "cold-start"
 
 
 # ── Connection Manager ──────────────────────────────────────────────
@@ -374,6 +402,58 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         pipeline_log.warning(f"checkpoint load failed: {e}")
 
+    # v4: stamp the active model version + checkpoint hash, register it
+    # in model_lineage if Postgres is reachable.
+    global _active_model_version, _active_checkpoint_hash
+    _active_model_version, _active_checkpoint_hash, _components = _compute_model_version_and_hash()
+    pipeline_log.info(
+        f"model lineage: version={_active_model_version} hash={_active_checkpoint_hash[:12]}…"
+    )
+    if _db_available and _db_pool:
+        try:
+            from db.connection import upsert_model_lineage
+            async with _db_pool.acquire() as conn:
+                await upsert_model_lineage(
+                    conn,
+                    model_version=_active_model_version,
+                    checkpoint_hash=_active_checkpoint_hash,
+                    components=_components,
+                    ensemble_weights={
+                        "if":   ensemble.if_weight,
+                        "lstm": ensemble.lstm_weight,
+                        "ciss": ensemble.ciss_weight,
+                        "copula": ensemble.copula_weight,
+                    },
+                )
+        except Exception as e:
+            db_log.warning(f"model_lineage upsert failed: {e}")
+
+    # v4: wire the audit sink so every dispatched alert is recorded in
+    # the tamper-evident audit_log.
+    async def _audit_alert(alert: dict, dispatch_result: dict):
+        if not (_db_available and _db_pool):
+            return
+        try:
+            from db.connection import insert_audit_log
+            payload = {
+                **alert,
+                "sinks": dispatch_result.get("sinks", {}),
+                "delivered": dispatch_result.get("delivered", False),
+            }
+            async with _db_pool.acquire() as conn:
+                await insert_audit_log(
+                    conn,
+                    actor="alert_dispatcher",
+                    event_type="ALERT_DISPATCH",
+                    severity=(alert.get("severity") or "INFO").upper(),
+                    model_version=_active_model_version,
+                    payload=payload,
+                )
+        except Exception as e:
+            db_log.warning(f"audit_log insert failed: {e}")
+
+    alert_dispatcher.set_audit_sink(_audit_alert)
+
     # Initialize Finnhub live data (if configured)
     if _data_mode in ("finnhub", "hybrid") and FINNHUB_API_KEY:
         try:
@@ -427,8 +507,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — configurable origins
+# CORS — configurable origins.
+# Production assertion: if VELURE_API_KEY is set we treat this as prod and
+# refuse a wildcard origin. Defence in depth — operators can still
+# misconfigure via env, but the process won't boot in an unsafe state.
 _cors_origins = [o.strip() for o in CORS_ORIGINS.split(",")] if CORS_ORIGINS != "*" else ["*"]
+if API_KEY and "*" in _cors_origins:
+    raise RuntimeError(
+        "Refusing to start: CORS_ORIGINS='*' with an API key set is unsafe. "
+        "Set CORS_ORIGINS to an explicit comma-separated list of HTTPS origins."
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -466,18 +554,42 @@ async def health_check():
 # ── WebSocket Endpoint ──────────────────────────────────────────────
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
-    """Live dashboard WebSocket — streams ML scores + market data."""
+    """
+    Live dashboard WebSocket — streams ML scores + market data.
+
+    Auth: when API_KEY is set the client must present it via either:
+      · `X-API-Key` request header (preferred — proxies forward it)
+      · `?api_key=…` query string (fallback for browser clients that
+        cannot set custom headers on `new WebSocket(...)`)
+
+    A bad/missing key closes the socket with policy-violation 1008
+    *before* it is registered with the connection manager — so
+    unauthenticated clients can't grow our memory footprint.
+    """
+    if API_KEY:
+        provided = (
+            websocket.headers.get("x-api-key")
+            or websocket.query_params.get("api_key", "")
+        )
+        if provided != API_KEY:
+            ws_log.warning(
+                "ws auth rejected",
+                extra={"client": websocket.client.host if websocket.client else "?"},
+            )
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
     await manager.connect(websocket)
     try:
         while True:
             # Keep connection alive, handle client messages
             data = await websocket.receive_text()
             msg = json.loads(data)
-            
+
             # Handle client commands
             if msg.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
-            
+
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception:
@@ -997,3 +1109,119 @@ async def checkpoint_load():
 async def watermark_status():
     """Event-time watermark + per-source staleness stats."""
     return watermark.status()
+
+
+# ── Audit log + lineage (v4) ────────────────────────────────────────
+@app.get("/api/audit")
+async def audit_log(limit: int = 50, event_type: str = None):
+    """
+    Recent audit_log rows (most recent first).
+    Empty result if Postgres is unavailable — callers should treat that
+    as "audit unavailable", not "no events".
+    """
+    if not (_db_available and _db_pool):
+        return {"available": False, "rows": []}
+    limit = max(1, min(limit, 500))
+    async with _db_pool.acquire() as conn:
+        if event_type:
+            rows = await conn.fetch(
+                """
+                SELECT audit_id, occurred_at, actor, event_type, severity,
+                       model_version, payload, prev_hash, this_hash
+                FROM audit_log
+                WHERE event_type = $1
+                ORDER BY audit_id DESC LIMIT $2
+                """,
+                event_type, limit,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT audit_id, occurred_at, actor, event_type, severity,
+                       model_version, payload, prev_hash, this_hash
+                FROM audit_log
+                ORDER BY audit_id DESC LIMIT $1
+                """,
+                limit,
+            )
+        return {"available": True, "count": len(rows), "rows": [dict(r) for r in rows]}
+
+
+@app.get("/api/audit/verify")
+async def audit_verify(scan_limit: int = 1000):
+    """
+    Walk the most recent N audit rows and verify the hash chain is intact.
+    Returns the first broken row (if any) so an operator can investigate.
+    Cheap: pure read, ~O(N) sha256 hashes.
+    """
+    import hashlib
+    import json as _json
+    if not (_db_available and _db_pool):
+        return {"available": False}
+    scan_limit = max(10, min(scan_limit, 10000))
+    async with _db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT audit_id, actor, event_type, severity, model_version,
+                   payload, prev_hash, this_hash
+            FROM audit_log
+            ORDER BY audit_id ASC
+            LIMIT $1
+            """,
+            scan_limit,
+        )
+    if not rows:
+        return {"available": True, "scanned": 0, "intact": True}
+
+    prev_hash = None
+    for r in rows:
+        canonical = _json.dumps(
+            {
+                "actor":         r["actor"],
+                "event_type":    r["event_type"],
+                "severity":      r["severity"],
+                "model_version": r["model_version"],
+                "payload":       (r["payload"] if isinstance(r["payload"], dict)
+                                  else _json.loads(r["payload"])),
+            },
+            sort_keys=True, separators=(",", ":"), default=str,
+        )
+        h = hashlib.sha256(((prev_hash or "") + canonical).encode("utf-8")).hexdigest()
+        if h != r["this_hash"] or r["prev_hash"] != prev_hash:
+            return {
+                "available": True,
+                "scanned": len(rows),
+                "intact": False,
+                "broken_at_id": r["audit_id"],
+                "expected_hash": h,
+                "stored_hash":   r["this_hash"],
+            }
+        prev_hash = r["this_hash"]
+
+    return {"available": True, "scanned": len(rows), "intact": True}
+
+
+@app.get("/api/lineage")
+async def model_lineage_list():
+    """Active model versions known to the system."""
+    if not (_db_available and _db_pool):
+        return {"available": False, "active": {
+            "model_version": _active_model_version,
+            "checkpoint_hash": _active_checkpoint_hash,
+        }}
+    async with _db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT lineage_id, model_version, checkpoint_hash, components,
+                   ensemble_weights, activated_at, deactivated_at
+            FROM model_lineage
+            ORDER BY activated_at DESC
+            LIMIT 50
+        """)
+        return {
+            "available": True,
+            "active": {
+                "model_version": _active_model_version,
+                "checkpoint_hash": _active_checkpoint_hash,
+            },
+            "history": [dict(r) for r in rows],
+        }

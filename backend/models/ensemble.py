@@ -35,14 +35,14 @@ class EnsembleOrchestrator:
         6. Return unified dashboard payload
     """
 
-    def __init__(self, batch_size: int = 20, flush_interval_ms: int = 2000):
+    def __init__(self, batch_size: int = 10, flush_interval_ms: int = 500):
         self.batch_size = batch_size
         self.flush_interval_ms = flush_interval_ms
         self._batch_buffer: List[dict] = []
         self._last_flush = time.time()
         self._latest_scores: Dict = {}
         self._alert_history: deque = deque(maxlen=100)
-
+        
         # Ensemble weights — pulled from config so .env tuning applies
         # Normalize to sum to 1.0
         raw_total = ENSEMBLE_IF_WEIGHT + ENSEMBLE_LSTM_WEIGHT + ENSEMBLE_CISS_WEIGHT + ENSEMBLE_COPULA_WEIGHT
@@ -51,16 +51,9 @@ class EnsembleOrchestrator:
         self.ciss_weight = ENSEMBLE_CISS_WEIGHT / raw_total
         self.copula_weight = ENSEMBLE_COPULA_WEIGHT / raw_total
 
-        # EMA smoothing — institutional cadence, not HFT flicker.
-        # alpha=0.04 → ~50-tick effective window before a number visibly settles
-        self._ema_alpha = 0.04
+        # EMA smoothing — reduces tick-to-tick jitter
+        self._ema_alpha = 0.12  # lower = smoother (0.1-0.2 is good)
         self._ema: Dict[str, float] = {}
-
-        # Rolling 1-minute window of combined scores → "display_score"
-        # is the median of the last minute. This is the hero number a
-        # human looks at; raw combined_anomaly is shown as the secondary
-        # ghost reading for traders who want the instantaneous value.
-        self._display_window: deque = deque(maxlen=60)
 
         # Alert thresholds
         self.ALERT_THRESHOLDS = {
@@ -153,22 +146,10 @@ class EnsembleOrchestrator:
         copula_score = self._smooth("copula", copula_score)
         combined_anomaly = self._smooth("combined", raw_combined)
 
-        # 5c. Rolling 1-minute display score — the hero number.
-        # Median of the last 60 ticks resists single-tick spikes that
-        # would whipsaw a trader's eye. Severity is derived from this
-        # so the threshold gate doesn't flicker between buckets.
-        self._display_window.append(combined_anomaly)
-        sorted_window = sorted(self._display_window)
-        n = len(sorted_window)
-        display_score = (
-            sorted_window[n // 2] if n % 2
-            else 0.5 * (sorted_window[n // 2 - 1] + sorted_window[n // 2])
-        )
-
-        # 6. Determine alert level off the smoothed display score
+        # 6. Determine alert level
         severity = "NORMAL"
         for level, threshold in sorted(self.ALERT_THRESHOLDS.items(), key=lambda x: x[1], reverse=True):
-            if display_score >= threshold:
+            if combined_anomaly >= threshold:
                 severity = level
                 break
 
@@ -220,15 +201,12 @@ class EnsembleOrchestrator:
             "crisis_mode": latest_tick.get("crisis_mode", False),
 
             # Core scores
-            # display_score = 1-min median (hero number, stable enough to act on)
-            # combined_anomaly = instantaneous EMA reading (shown as ghost)
             "scores": {
                 "isolation_forest": round(if_score, 6),
                 "lstm_autoencoder": round(lstm_score, 6),
                 "ciss": round(ciss_score_val, 6),
                 "copula_tail": round(copula_score, 6),
                 "combined_anomaly": round(combined_anomaly, 6),
-                "display_score": round(display_score, 6),
                 "severity": severity,
             },
             # Copula snapshot — tail dependence matrix + joint-crash prob

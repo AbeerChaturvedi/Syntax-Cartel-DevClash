@@ -64,6 +64,81 @@ async def insert_alert(conn, alert_type: str, severity: str, model_source: str,
     """, alert_type, severity, model_source, description, asset_id, score_value)
 
 
+async def insert_audit_log(
+    conn,
+    actor: str,
+    event_type: str,
+    severity: str,
+    model_version: str,
+    payload: dict,
+) -> dict:
+    """
+    Append a hash-chained row to audit_log.
+
+    Reads the previous row's this_hash inside the same transaction so the
+    chain is continuous under concurrent writes (audit_id ordering + the
+    locked SELECT prevents holes).
+    """
+    import hashlib
+    import json as _json
+    async with conn.transaction():
+        prev = await conn.fetchrow(
+            "SELECT this_hash FROM audit_log ORDER BY audit_id DESC LIMIT 1 FOR UPDATE"
+        )
+        prev_hash = prev["this_hash"] if prev else None
+
+        canonical = _json.dumps(
+            {
+                "actor": actor,
+                "event_type": event_type,
+                "severity": severity,
+                "model_version": model_version,
+                "payload": payload,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        h = hashlib.sha256(((prev_hash or "") + canonical).encode("utf-8")).hexdigest()
+
+        row = await conn.fetchrow(
+            """
+            INSERT INTO audit_log
+                (actor, event_type, severity, model_version, payload, prev_hash, this_hash)
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+            RETURNING audit_id, occurred_at, this_hash
+            """,
+            actor, event_type, severity, model_version, _json.dumps(payload, default=str),
+            prev_hash, h,
+        )
+        return dict(row)
+
+
+async def upsert_model_lineage(
+    conn,
+    model_version: str,
+    checkpoint_hash: str,
+    components: dict,
+    ensemble_weights: dict,
+) -> dict:
+    """Register the active model version. No-op if (version, hash) already known."""
+    import json as _json
+    row = await conn.fetchrow(
+        """
+        INSERT INTO model_lineage
+            (model_version, checkpoint_hash, components, ensemble_weights)
+        VALUES ($1, $2, $3::jsonb, $4::jsonb)
+        ON CONFLICT (model_version, checkpoint_hash) DO UPDATE
+            SET activated_at = COALESCE(model_lineage.activated_at, NOW())
+        RETURNING lineage_id, model_version, checkpoint_hash, activated_at
+        """,
+        model_version, checkpoint_hash,
+        _json.dumps(components, default=str),
+        _json.dumps(ensemble_weights, default=str),
+    )
+    return dict(row)
+
+
 async def get_or_create_time_id(conn, epoch_ms: int, timestamp_utc):
     """Get or create a time dimension entry. Uses INSERT ON CONFLICT to avoid redundant SELECT."""
     row = await conn.fetchrow("""

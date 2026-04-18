@@ -1,0 +1,96 @@
+# ═══════════════════════════════════════════════════════════════════════
+#  Project Velure — Observability overlay
+#
+#  Adds Prometheus + Grafana to whichever base compose file is in use.
+#
+#  Usage:
+#    docker compose --env-file .env.prod \
+#      -f docker-compose.prod.yml \
+#      -f docker-compose.observability.yml \
+#      up -d
+#
+#  Endpoints (all bound to loopback — front with Caddy if exposed):
+#    Prometheus → 127.0.0.1:9090
+#    Grafana    → 127.0.0.1:3001  (admin / ${GRAFANA_ADMIN_PASSWORD})
+# ═══════════════════════════════════════════════════════════════════════
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: always
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+      - "--web.listen-address=:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - velure_internal
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:9090/-/ready"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "5" }
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    restart: always
+    user: "472:472"
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_AUTH_ANONYMOUS_ENABLED:  "false"
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_INSTALL_PLUGINS:         ""
+      GF_FEATURE_TOGGLES_ENABLE:  ""
+      GF_SERVER_ROOT_URL:         ${GRAFANA_ROOT_URL:-http://127.0.0.1:3001}
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - velure_internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health | grep -q ok"]
+      interval: 20s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.50"
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "50m", max-file: "5" }
+
+volumes:
+  prometheus_data:
+  grafana_data:

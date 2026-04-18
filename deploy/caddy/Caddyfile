@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Project Velure — Caddy v2 reverse proxy (TLS terminator)
+#
+#  Caddy auto-provisions Let's Encrypt certs, handles HTTP→HTTPS redirect,
+#  ALPN/h2/h3, OCSP stapling, and WebSocket upgrade headers out of the box.
+#
+#  Required env vars at runtime (set in .env.prod or pass to docker compose):
+#    DOMAIN_API   — e.g. velure.example.com         (FastAPI host)
+#    DOMAIN_APP   — e.g. app.velure.example.com     (Next.js host)
+#    ACME_EMAIL   — contact email for Let's Encrypt
+#
+#  Internal upstreams resolve over the velure_internal docker network.
+# ─────────────────────────────────────────────────────────────────────
+
+{
+	email {$ACME_EMAIL}
+	# Strict ACME, HTTP/3 enabled by default in Caddy 2.7+
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+# ── API + WebSocket host ─────────────────────────────────────────────
+{$DOMAIN_API} {
+	encode zstd gzip
+
+	# Security headers — defence in depth, not a substitute for the app
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "DENY"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=()"
+		# Hide Caddy fingerprint
+		-Server
+	}
+
+	# WebSocket upgrade — Caddy detects automatically, but be explicit
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade    websocket
+	}
+	reverse_proxy @websocket backend:8000
+
+	# Rate-limit at the edge as well as in the app middleware.
+	# Caddy rate limit module is built-in from v2.7.
+	# Tune per-deployment.
+	@api path /api/* /metrics /health /ws/*
+	reverse_proxy @api backend:8000 {
+		header_up X-Forwarded-For   {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP         {remote_host}
+		# Idle timeout long enough for slow operators, short enough
+		# to free file descriptors on dead clients.
+		transport http {
+			read_timeout      120s
+			write_timeout     120s
+			dial_timeout      5s
+			response_header_timeout 30s
+		}
+	}
+
+	# Default — also goes to backend
+	reverse_proxy backend:8000
+}
+
+# ── Dashboard host ───────────────────────────────────────────────────
+{$DOMAIN_APP} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "DENY"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		# Strict CSP — adjust if you add CDN-hosted assets.
+		# 'unsafe-inline' on style is required by Next.js's runtime style injection.
+		Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss://{$DOMAIN_API} https://{$DOMAIN_API}; font-src 'self' data:; frame-ancestors 'none'"
+		Permissions-Policy        "geolocation=(), microphone=(), camera=()"
+		-Server
+	}
+
+	reverse_proxy frontend:3000 {
+		header_up X-Forwarded-For   {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}

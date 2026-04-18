@@ -1,0 +1,56 @@
+groups:
+  - name: velure.pipeline
+    rules:
+      - alert: VelurePipelineDown
+        expr: up{job="velure-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Velure backend scrape failing for 1m"
+          description: "Prometheus has not been able to reach /metrics on {{ $labels.instance }} for 1 minute."
+
+      - alert: VelureHighPipelineLatency
+        expr: velure_pipeline_latency_ms > 250
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline latency degraded ({{ $value }} ms p-mean over 5m)"
+          description: "Average ensemble latency above 250ms. Investigate model loop, Redis depth, GC."
+
+      - alert: VelureCircuitBreakerOpen
+        expr: velure_circuit_breaker_state > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} circuit breaker open for 2m"
+          description: "Backend has tripped the circuit breaker for {{ $labels.service }}. Pipeline is in degraded fallback."
+
+      - alert: VelureDBErrorBudget
+        expr: increase(velure_db_errors_total[10m]) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres write errors exceeding budget ({{ $value }} in 10m)"
+          description: "More than 50 db errors in the last 10 minutes — check pool, disk, locks."
+
+      - alert: VelureNoCrisisAlertsButHighStress
+        expr: velure_score_combined > 0.7 and increase(velure_crisis_events_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Combined risk > 0.7 but no alert dispatched in 10m"
+          description: "Possible alerter-down condition. Investigate alert dispatcher and dedup window."
+
+      - alert: VelureWebSocketDrop
+        expr: velure_connected_clients == 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "No WebSocket clients connected for 10m"
+          description: "Either all dashboard clients have disconnected, or the WS endpoint is failing."

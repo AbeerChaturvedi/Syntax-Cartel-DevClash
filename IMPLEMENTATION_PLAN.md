@@ -1,10 +1,31 @@
-# Project Velure — Implementation Plan (v3 — Production Track)
+# Project Velure — Implementation Plan (v4 — Deployable Track)
 ## Real-Time Financial Crisis Early Warning System
 ### DevClash 2026 — Syntax Cartel
 
 > **Stance:** this is not a hackathon demo dressed up in production clothes.
 > It is a production-grade, institutionally-defensible early warning system
-> that happens to be finishable in a 48-hour sprint.
+> that happens to be finishable in a 48-hour sprint — and is now wired for
+> a real deployment, not just a judging demo.
+
+---
+
+## 0a. What Changed From v3 (now v4 — deployment hardening)
+
+v3 closed the *modeling* gaps. v4 closes the *deployment* gaps that
+[PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) §2 + §3 called blocking:
+
+| # | Gap | v4 Addition |
+|---|-----|-------------|
+| 1 | Plain-HTTP backend would leak the API key on every WS upgrade | **Caddy reverse proxy overlay** ([docker-compose.tls.yml](docker-compose.tls.yml) + [deploy/caddy/Caddyfile](deploy/caddy/Caddyfile)) — auto-Let's Encrypt, HSTS, CSP, h2/h3 |
+| 2 | Postgres volume was the only copy of the data | **Backup sidecar** ([docker-compose.backup.yml](docker-compose.backup.yml) + [deploy/postgres-backup/](deploy/postgres-backup/)) — pg_dump → gzip on schedule with retention + optional S3 |
+| 3 | Prometheus / Grafana shipped as empty directories | **Full observability overlay** ([docker-compose.observability.yml](docker-compose.observability.yml)) — Prometheus scrape config + alert rules, Grafana provisioned datasource + the `Velure — Operational Overview` dashboard |
+| 4 | No sustained-load proof of pipeline behaviour | **k6 harness** ([tests/load/k6_dashboard_load.js](tests/load/k6_dashboard_load.js)) — REST pollers + 200 concurrent WS clients + burst API, with hard pass thresholds |
+| 5 | Checkpoint recovery had no integration test | **pytest** ([tests/test_checkpoint_recovery.py](tests/test_checkpoint_recovery.py)) — round-trip + atomic-promotion + version mismatch + corrupt-temp-dir + state-survives-restart |
+| 6 | WS endpoint was unauthenticated even when API key was set | **WS auth gate** in [main.py](backend/main.py) — closes 1008 *before* allocation; accepts `X-API-Key` header or `?api_key=…` |
+| 7 | CORS could silently start with `*` while API key was set | **Startup assertion** — backend refuses to boot if `CORS_ORIGINS='*'` and `VELURE_API_KEY` is non-empty |
+| 8 | Alerts were not tamper-evident; no model lineage stamping | **Hash-chained `audit_log`** + **`model_lineage`** registry ([backend/db/migrations/04_audit.sql](backend/db/migrations/04_audit.sql)). Every dispatched alert is recorded with `model_version` + `checkpoint_hash`. `GET /api/audit/verify` walks the chain. |
+| 9 | No operator-facing deploy guide | **[DEPLOY.md](DEPLOY.md)** — full compose layout, `.env.prod` reference, first-boot, day-2, restore drill, troubleshooting |
+| 10 | No published threat model | **[SECURITY.md](SECURITY.md)** — trust boundaries, what we enforce, what we don't, operator hygiene checklist |
 
 ---
 
@@ -398,20 +419,45 @@ H46-H48  Demo rehearsal + pitch deck + demo-video fallback
 - [x] Finnhub WebSocket live connector
 - [x] Docker health checks
 
-### 🆕 In Progress / v3 Additions
-- [ ] `copula_model.py` — t-copula + GARCH(1,1) tail dependence
-- [ ] `watermark.py` — event-time watermarking with bounded lateness
-- [ ] `model_persistence.py` — atomic checkpoint/restore
-- [ ] `alerting.py` — multi-sink dispatcher (Slack/Discord/PD/webhook/email)
-- [ ] `replay.py` — historical CSV replay engine
-- [ ] `backtesting/harness.py` + `historical_crises.py` — ROC/AUC validation
-- [ ] `portfolio/portfolio_var.py` — user portfolio VaR endpoint
-- [ ] `schema_timescale.sql` + hypertable migration
-- [ ] `TailDependenceMatrix.jsx`, `PortfolioBuilder.jsx`, `BacktestView.jsx`, `ReplayController.jsx`
-- [ ] Multi-stage Dockerfile hardening + `docker-compose.prod.yml`
-- [ ] `deploy/k8s/` manifests + `deploy/grafana/` dashboard
-- [ ] `tests/` — pytest coverage of critical paths
-- [ ] `PLAYBOOK.md` + `PRODUCTION_READINESS.md`
+### ✅ Completed in v3
+- [x] `copula_model.py` — t-copula + GARCH(1,1) tail dependence
+- [x] `watermark.py` — event-time watermarking with bounded lateness
+- [x] `model_persistence.py` — atomic checkpoint/restore
+- [x] `alerting.py` — multi-sink dispatcher (Slack/Discord/PD/webhook/email)
+- [x] `replay.py` — historical CSV replay engine
+- [x] `backtesting/harness.py` + `historical_crises.py` — ROC/AUC validation
+- [x] `portfolio/portfolio_var.py` — user portfolio VaR endpoint
+- [x] `schema_timescale.sql` + hypertable migration
+- [x] `TailDependenceMatrix.jsx`, `PortfolioBuilder.jsx`, `BacktestView.jsx`, `ReplayController.jsx`
+- [x] Multi-stage Dockerfile hardening + `docker-compose.prod.yml`
+- [x] `tests/` — pytest scaffold
+- [x] `PLAYBOOK.md` + `PRODUCTION_READINESS.md`
+- [x] Institutional UI pass — single accent palette, no emojis, sharp radii, tabular numerics
+- [x] Display stability — EMA + 1-min rolling median + 2 s flush (server + client)
+
+### ✅ Completed in v4 (deployment hardening)
+- [x] Caddy TLS reverse proxy + [docker-compose.tls.yml](docker-compose.tls.yml) overlay
+- [x] Postgres backup sidecar + [docker-compose.backup.yml](docker-compose.backup.yml) overlay (with optional S3)
+- [x] Prometheus + Grafana overlay ([docker-compose.observability.yml](docker-compose.observability.yml))
+  - [x] [deploy/prometheus/prometheus.yml](deploy/prometheus/prometheus.yml) + [alerts.yml](deploy/prometheus/alerts.yml)
+  - [x] [deploy/grafana/dashboards/velure-overview.json](deploy/grafana/dashboards/velure-overview.json) + provisioning
+- [x] k6 sustained load test ([tests/load/k6_dashboard_load.js](tests/load/k6_dashboard_load.js)) with hard thresholds
+- [x] Checkpoint recovery pytest ([tests/test_checkpoint_recovery.py](tests/test_checkpoint_recovery.py))
+- [x] CORS wildcard refusal at startup when API key is set
+- [x] WebSocket API-key gate (header or query param), close 1008 on bad key
+- [x] Hash-chained `audit_log` + `model_lineage` tables ([backend/db/migrations/04_audit.sql](backend/db/migrations/04_audit.sql))
+- [x] `GET /api/audit`, `GET /api/audit/verify`, `GET /api/lineage` endpoints
+- [x] Audit sink wired into `alert_dispatcher` so every dispatch is recorded
+- [x] [DEPLOY.md](DEPLOY.md) — operator deploy guide
+- [x] [SECURITY.md](SECURITY.md) — threat model + operator checklist
+
+### 🔭 Out-of-band — handle when scaling beyond a single VM
+- [ ] `deploy/k8s/` manifests (Deployment/Service/Ingress + PDB)
+- [ ] Alembic migration framework
+- [ ] Per-consumer API keys with scopes (RBAC)
+- [ ] Vault / secrets-manager wiring (replaces `.env.prod`)
+- [ ] Alertmanager target wired into `prometheus.yml` `alerting:` block
+- [ ] Trivy / image-vulnerability scanning in CI
 
 ---
 

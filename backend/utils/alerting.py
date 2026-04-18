@@ -65,6 +65,13 @@ class AlertDispatcher:
         self._delivery_count = 0
         self._failure_count = 0
         self._last_error: Optional[str] = None
+        # Optional audit hook — wired by main.py to write to audit_log.
+        # Async callable: (alert: dict, dispatch_result: dict) -> None
+        self._audit_sink = None
+
+    def set_audit_sink(self, sink):
+        """Register an async callable that receives every dispatch outcome."""
+        self._audit_sink = sink
 
     # ── public entrypoint ──────────────────────────────────────────
     async def dispatch(self, alert: dict) -> Dict:
@@ -107,7 +114,18 @@ class AlertDispatcher:
                     self._delivery_count += 1
 
         api_log.info("alert dispatched", extra={"severity": severity, "sinks": list(results.keys())})
-        return {"delivered": True, "sinks": results}
+        outcome = {"delivered": True, "sinks": results}
+
+        # Persist to audit_log if a sink is registered. Failure here is logged
+        # but never surfaced — alerts must never fail because the audit DB is
+        # down. Operators detect missing audit rows via the readiness check.
+        if self._audit_sink is not None:
+            try:
+                await self._audit_sink(alert, outcome)
+            except Exception as e:
+                api_log.warning(f"audit_sink failed: {e}")
+
+        return outcome
 
     def status(self) -> Dict:
         return {

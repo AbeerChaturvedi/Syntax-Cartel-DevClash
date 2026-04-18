@@ -1,0 +1,219 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "datasource": { "type": "prometheus", "uid": "velure-prom" },
+        "enable": true,
+        "expr": "changes(velure_crisis_events_total[1m]) > 0",
+        "iconColor": "red",
+        "name": "Crisis events",
+        "titleFormat": "Crisis dispatched"
+      }
+    ]
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "orange", "value": 0.7 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "unit": "none",
+          "min": 0,
+          "max": 1
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        { "expr": "velure_score_combined", "refId": "A", "legendFormat": "combined" }
+      ],
+      "title": "Combined risk (live)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 0.75 }
+            ]
+          },
+          "unit": "none",
+          "min": 0,
+          "max": 1
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        { "expr": "velure_score_ciss", "refId": "A", "legendFormat": "CISS" }
+      ],
+      "title": "CISS systemic stress",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 100 },
+            { "color": "red", "value": 250 }
+          ] },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        { "expr": "velure_pipeline_latency_ms", "refId": "A", "legendFormat": "ms" }
+      ],
+      "title": "Pipeline latency (avg)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area" },
+      "targets": [
+        { "expr": "velure_ticks_per_second", "refId": "A", "legendFormat": "tps" }
+      ],
+      "title": "Throughput (tps)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "fillOpacity": 10 },
+          "min": 0, "max": 1, "unit": "none"
+        }
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 6 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "velure_score_combined",         "refId": "A", "legendFormat": "combined" },
+        { "expr": "velure_score_ciss",             "refId": "B", "legendFormat": "CISS" },
+        { "expr": "velure_score_isolation_forest", "refId": "C", "legendFormat": "IF" },
+        { "expr": "velure_score_lstm",             "refId": "D", "legendFormat": "LSTM" }
+      ],
+      "title": "Risk scores — full breakdown",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "id": 6,
+      "targets": [
+        { "expr": "velure_pipeline_latency_ms", "refId": "A", "legendFormat": "avg latency" }
+      ],
+      "title": "Pipeline latency over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "id": 7,
+      "targets": [
+        { "expr": "rate(velure_ticks_total[1m])",      "refId": "A", "legendFormat": "ticks/s" },
+        { "expr": "rate(velure_broadcasts_total[1m])", "refId": "B", "legendFormat": "broadcasts/s" }
+      ],
+      "title": "Ingest vs broadcast rate (1m rate)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "text": "CLOSED", "color": "green" } }, "type": "value" },
+            { "options": { "1": { "text": "OPEN",   "color": "red" } },   "type": "value" },
+            { "options": { "2": { "text": "HALF",   "color": "yellow" } },"type": "value" }
+          ]
+        }
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 23 },
+      "id": 8,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "targets": [
+        { "expr": "velure_circuit_breaker_state", "refId": "A", "legendFormat": "{{service}}" }
+      ],
+      "title": "Circuit breakers",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 23 },
+      "id": 9,
+      "targets": [
+        { "expr": "increase(velure_db_writes_total[5m])", "refId": "A", "legendFormat": "writes / 5m" },
+        { "expr": "increase(velure_db_errors_total[5m])", "refId": "B", "legendFormat": "errors / 5m" }
+      ],
+      "title": "Postgres write activity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "velure-prom" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 29 },
+      "id": 10,
+      "targets": [
+        { "expr": "velure_connected_clients",           "refId": "A", "legendFormat": "WS clients" },
+        { "expr": "increase(velure_crisis_events_total[5m])", "refId": "B", "legendFormat": "crises / 5m" }
+      ],
+      "title": "Clients + crisis events",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["velure", "risk"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Velure — Operational Overview",
+  "uid": "velure-overview",
+  "version": 1,
+  "weekStart": ""
+}
