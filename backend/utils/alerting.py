@@ -28,7 +28,10 @@ import time
 from email.message import EmailMessage
 from typing import Dict, List, Optional
 
-import aiohttp
+try:
+    import aiohttp
+except Exception:
+    aiohttp = None  # Python 3.14 SSL PermissionError — webhook sinks unavailable
 
 from utils.config import (
     ALERT_SLACK_WEBHOOK,
@@ -248,6 +251,8 @@ class AlertDispatcher:
             return {"ok": False, "error": str(e)}
 
     async def _post_json(self, url: str, payload: dict) -> Dict:
+        if aiohttp is None:
+            return {"ok": False, "error": "aiohttp unavailable (Python 3.14 SSL issue)"}
         try:
             timeout = aiohttp.ClientTimeout(total=5)
             async with aiohttp.ClientSession(timeout=timeout) as sess:

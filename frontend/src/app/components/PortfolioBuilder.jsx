@@ -11,20 +11,22 @@ import { motion, AnimatePresence } from 'framer-motion';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const DEFAULT_PORTFOLIO = [
-  { ticker: 'SPY', weight: 0.40 },
+  { ticker: 'SPY', weight: 0.35 },
   { ticker: 'QQQ', weight: 0.20 },
-  { ticker: 'US10Y', weight: 0.15 },
+  { ticker: 'DIA', weight: 0.15 },
   { ticker: 'BTCUSD', weight: 0.10 },
   { ticker: 'EURUSD', weight: 0.10 },
-  { ticker: 'XLF', weight: 0.05 },
+  { ticker: 'XLF', weight: 0.10 },
 ];
 
 const QUICK_PORTFOLIOS = [
   {
     name: '60/40 Classic',
     items: [
-      { ticker: 'SPY', weight: 0.60 },
-      { ticker: 'US10Y', weight: 0.40 },
+      { ticker: 'SPY', weight: 0.40 },
+      { ticker: 'DIA', weight: 0.20 },
+      { ticker: 'XLF', weight: 0.20 },
+      { ticker: 'IWM', weight: 0.20 },
     ],
   },
   {

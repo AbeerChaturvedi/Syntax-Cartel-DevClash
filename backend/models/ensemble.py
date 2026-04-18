@@ -52,7 +52,9 @@ class EnsembleOrchestrator:
         self.copula_weight = ENSEMBLE_COPULA_WEIGHT / raw_total
 
         # EMA smoothing — reduces tick-to-tick jitter
-        self._ema_alpha = 0.12  # lower = smoother (0.1-0.2 is good)
+        # Lower alpha = smoother. 0.05 works well for hybrid data (two sources
+        # with different cadences). Original 0.12 was too reactive.
+        self._ema_alpha = 0.05
         self._ema: Dict[str, float] = {}
 
         # Alert thresholds
@@ -80,11 +82,18 @@ class EnsembleOrchestrator:
         return None
 
     def _smooth(self, key: str, raw: float) -> float:
-        """Exponential moving average to reduce tick-to-tick jitter."""
+        """EMA + hard rate-limiter to prevent score jumps > ±3% per tick."""
+        MAX_DELTA = 0.03  # Hard cap: score can move at most ±3% per tick
+        
         if key not in self._ema:
             self._ema[key] = raw
         else:
-            self._ema[key] = self._ema_alpha * raw + (1 - self._ema_alpha) * self._ema[key]
+            # EMA first
+            target = self._ema_alpha * raw + (1 - self._ema_alpha) * self._ema[key]
+            # Then clamp the delta
+            delta = target - self._ema[key]
+            delta = max(-MAX_DELTA, min(MAX_DELTA, delta))
+            self._ema[key] = self._ema[key] + delta
         return self._ema[key]
 
     async def _flush_batch(self) -> Dict:
@@ -97,8 +106,9 @@ class EnsembleOrchestrator:
         assets = latest_tick.get("assets", {})
 
         # 1. Isolation Forest — global anomaly detection
-        from ingestion.simulator import simulator
-        state_vector = simulator.get_state_vector()
+        from features.state_builder import state_builder
+        state_builder.ingest(latest_tick)
+        state_vector = state_builder.get_state_vector()
         try:
             if_score = anomaly_detector_if.predict(state_vector)
         except Exception:
@@ -108,7 +118,9 @@ class EnsembleOrchestrator:
         try:
             temporal_detector.add_to_buffer(state_vector)
             lstm_score = temporal_detector.predict()
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger("velure.pipeline").warning(f"LSTM predict error: {e}")
             lstm_score = 0.0
 
         # 3. CISS — systemic stress index
