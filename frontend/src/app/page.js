@@ -1,12 +1,13 @@
 /**
- * Project Velure — Main Dashboard Page
+ * Project Velure — Main Dashboard Page (v3)
  * Real-Time Financial Crisis Early Warning System
  * 
  * Architecture:
  * - WebSocket data → useRef buffer (no re-render)
  * - requestAnimationFrame flush → useState (capped at 60fps)
  * - ECharts canvas rendering for timeline
- * - Canvas rendering for correlation heatmap
+ * - Canvas rendering for correlation heatmap + ROC curves
+ * - All 19 components wired to live data
  */
 'use client';
 
@@ -17,6 +18,7 @@ import LiveTicker from './components/LiveTicker';
 import AnomalyTimeline from './components/AnomalyTimeline';
 import DefaultCards from './components/DefaultCards';
 import StressTestButton from './components/StressTestButton';
+import SpeedControl from './components/SpeedControl';
 import AlertBanner from './components/AlertBanner';
 import ExplainabilityPanel from './components/ExplainabilityPanel';
 import CorrelationHeatmap from './components/CorrelationHeatmap';
@@ -25,6 +27,10 @@ import SystemMetrics from './components/SystemMetrics';
 import StatusFooter from './components/StatusFooter';
 import VaRPanel from './components/VaRPanel';
 import ContagionNetwork from './components/ContagionNetwork';
+import TailDependenceMatrix from './components/TailDependenceMatrix';
+import PortfolioBuilder from './components/PortfolioBuilder';
+import BacktestView from './components/BacktestView';
+import ReplayController from './components/ReplayController';
 
 export default function Dashboard() {
   const { isConnected, dashboardData, connectionAttempts } = useWebSocket();
@@ -42,26 +48,47 @@ export default function Dashboard() {
   const tickId = data.tick_id || 0;
   const systemSRISK = data.system_srisk || {};
   const varMetrics = data.var_metrics || {};
+  const copula = data.copula || null;
 
   // Loading state
   if (!dashboardData) {
     return (
       <div className="loading-container">
-        <div className="loading-spinner" />
+        <div className="loading-logo">
+          <div className="loading-logo-mark">V</div>
+          <div className="loading-logo-ring" />
+        </div>
         <div className="loading-text">
           {isConnected ? 'Calibrating ML models...' : 'Connecting to Velure Engine...'}
         </div>
-        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+        <div className="loading-sub">
           {!isConnected && connectionAttempts > 0 && `Attempt ${connectionAttempts}...`}
         </div>
-        <div style={{
-          fontSize: '11px', color: 'var(--text-muted)', marginTop: '20px',
-          fontFamily: 'var(--font-mono)', textAlign: 'center', lineHeight: '1.8',
-        }}>
+        <div className="loading-models">
+          <div className="loading-model-item">
+            <span className="loading-model-dot" style={{ animationDelay: '0s' }} />
+            Isolation Forest (200 trees)
+          </div>
+          <div className="loading-model-item">
+            <span className="loading-model-dot" style={{ animationDelay: '0.2s' }} />
+            LSTM Autoencoder (72→32→72)
+          </div>
+          <div className="loading-model-item">
+            <span className="loading-model-dot" style={{ animationDelay: '0.4s' }} />
+            CISS Scorer (5 segments)
+          </div>
+          <div className="loading-model-item">
+            <span className="loading-model-dot" style={{ animationDelay: '0.6s' }} />
+            t-Copula + GARCH(1,1)
+          </div>
+          <div className="loading-model-item">
+            <span className="loading-model-dot" style={{ animationDelay: '0.8s' }} />
+            Merton DD + SRISK
+          </div>
+        </div>
+        <div className="loading-hint">
           Ensure the backend is running:<br />
-          <code style={{
-            background: 'var(--bg-tertiary)', padding: '4px 8px', borderRadius: '4px',
-          }}>
+          <code className="loading-code">
             cd backend && uvicorn main:app --reload
           </code>
         </div>
@@ -82,6 +109,8 @@ export default function Dashboard() {
         </div>
 
         <div className="header-right">
+          <SpeedControl />
+
           <div className="tick-counter">
             Tick #{tickId.toLocaleString()}
           </div>
@@ -125,13 +154,18 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* Sidebar: Default Cards + SRISK + Explainability + Correlation + Metrics */}
+        {/* Sidebar: Default Cards + SRISK + Tail + VaR + Corr + Explain + Metrics */}
         <div className="default-cards-container" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
           {/* Merton Cards */}
           <DefaultCards merton={merton} />
 
           {/* SRISK Aggregate Panel */}
           <SRISKPanel systemSRISK={systemSRISK} merton={merton} />
+
+          {/* Tail Dependence Matrix (t-Copula) */}
+          <div className="card">
+            <TailDependenceMatrix copula={copula} />
+          </div>
 
           {/* VaR/CVaR Risk Metrics */}
           <div className="card">
@@ -164,6 +198,15 @@ export default function Dashboard() {
           <SystemMetrics />
         </div>
       </main>
+
+      {/* ── v3 Panels (full-width below main grid) ────────── */}
+      <section className="v3-panels">
+        <PortfolioBuilder />
+        <div className="v3-panels-row">
+          <ReplayController />
+          <BacktestView />
+        </div>
+      </section>
 
       {/* ── Status Footer ─────────────────────────── */}
       <StatusFooter tickId={tickId} crisisMode={crisisMode} isConnected={isConnected} />

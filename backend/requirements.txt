@@ -11,3 +11,5 @@ scikit-learn==1.5.0
 torch==2.4.0
 joblib==1.4.0
 pydantic==2.9.0
+aiohttp==3.10.0
+python-multipart==0.0.9
