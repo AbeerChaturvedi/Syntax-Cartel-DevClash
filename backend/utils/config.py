@@ -65,6 +65,7 @@ RATE_LIMIT_PER_MINUTE = _env("RATE_LIMIT_PER_MINUTE", 120, int)
 FINNHUB_API_KEY = _env("FINNHUB_API_KEY", "")
 POLYGON_API_KEY = _env("POLYGON_API_KEY", "")
 FRED_API_KEY = _env("FRED_API_KEY", "")
+NEWSDATA_API_KEY = _env("NEWSDATA_API_KEY", "")
 DATA_MODE = _env("DATA_MODE", "simulator")  # "simulator" | "finnhub" | "hybrid"
 ENABLE_SIMULATOR = _env("ENABLE_SIMULATOR", "true").lower() in ("true", "1", "yes")
 
