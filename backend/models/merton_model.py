@@ -49,39 +49,59 @@ class MertonModel:
         self.rf = risk_free_rate
         self.k = 0.08  # Basel III regulatory capital ratio
         self._vol_buffers: Dict[str, deque] = {
-            ticker: deque(maxlen=2000) for ticker in self.INSTITUTION_PROFILES
+            ticker: deque(maxlen=500) for ticker in self.INSTITUTION_PROFILES
         }
         self._price_buffers: Dict[str, deque] = {
-            ticker: deque(maxlen=2000) for ticker in self.INSTITUTION_PROFILES
+            ticker: deque(maxlen=1000) for ticker in self.INSTITUTION_PROFILES
+        }
+        # EWMA variance state per ticker (RiskMetrics lambda = 0.94)
+        self._ewma_var: Dict[str, float] = {
+            ticker: 0.0 for ticker in self.INSTITUTION_PROFILES
+        }
+        # Tick counter for minute-return sampling
+        self._tick_count: Dict[str, int] = {
+            ticker: 0 for ticker in self.INSTITUTION_PROFILES
         }
 
     def update(self, ticker: str, price: float, pct_change: float):
-        """Update price and return history for an institution."""
-        if ticker in self._price_buffers:
-            self._price_buffers[ticker].append(price)
-            if pct_change != 0 and np.isfinite(pct_change):
-                self._vol_buffers[ticker].append(pct_change / 100)
+        """Update price buffer and compute minute-level returns for DD estimation."""
+        if ticker not in self._price_buffers:
+            return
+        self._price_buffers[ticker].append(price)
+        self._tick_count[ticker] = self._tick_count.get(ticker, 0) + 1
+        
+        # Compute block returns every BLOCK_TICKS ticks
+        # Each bank ticker gets ~0.27 tps, so 10 ticks ≈ 37 seconds
+        buf = self._price_buffers[ticker]
+        BLOCK_TICKS = 10
+        if self._tick_count[ticker] % BLOCK_TICKS == 0 and len(buf) >= BLOCK_TICKS:
+            p_now = buf[-1]
+            p_prev = buf[-BLOCK_TICKS]
+            if p_prev > 0:
+                block_ret = (p_now - p_prev) / p_prev
+                self._vol_buffers[ticker].append(block_ret)
+                # Update EWMA variance on block returns (λ=0.94)
+                lam = 0.94
+                prev = self._ewma_var.get(ticker, 0.0)
+                if prev == 0.0:
+                    self._ewma_var[ticker] = block_ret ** 2
+                else:
+                    self._ewma_var[ticker] = lam * prev + (1 - lam) * block_ret ** 2
 
     def _compute_lrmes(self, equity_vol: float, leverage: float) -> float:
         """
         Compute Long-Run Marginal Expected Shortfall.
-        LRMES = 1 - exp(-18 * beta * 0.4)  (approximation from Acharya et al.)
-        Simplified: uses leverage-adjusted volatility as proxy for beta.
-        
-        Recalibrated: original formula produced 0.99 for all banks because
-        leverage multiplier (1/(1-0.88)=8.3) made beta_proxy huge.
-        Now uses sqrt-dampened leverage and tighter beta cap.
+        LRMES = 1 - exp(-beta * severity)  (Acharya et al. approximation)
+        Uses leverage-adjusted volatility as proxy for market beta.
         """
-        # Dampened leverage factor: sqrt reduces the 8x amplification to ~2.8x
-        leverage_factor = np.sqrt(1 / max(1 - leverage, 0.05))
-        beta_proxy = equity_vol * leverage_factor
-        # Cap at 0.8 — allows differentiation between banks
-        beta_proxy = min(beta_proxy, 0.8)
-        # 40% market decline scenario over 6 months
-        # Coefficient 6 (not 18): Acharya's 18 was for daily beta, our beta_proxy
-        # is already leverage-amplified; 6 gives healthy≈0.3, crisis≈0.8
-        lrmes = 1 - np.exp(-6 * beta_proxy * 0.4)
-        return float(np.clip(lrmes, 0, 0.95))
+        # Use log-dampened leverage to spread banks apart
+        leverage_factor = np.log(1 / max(1 - leverage, 0.05))
+        # Scale equity_vol (typically 0.15-1.2) into a beta proxy
+        beta_proxy = equity_vol * 0.3 * leverage_factor
+        beta_proxy = float(np.clip(beta_proxy, 0.05, 0.6))
+        # 40% market decline scenario; coefficient tuned for healthy≈0.15, stress≈0.7
+        lrmes = 1 - np.exp(-3.5 * beta_proxy * 0.4)
+        return float(np.clip(lrmes, 0.02, 0.95))
 
     def compute_distance_to_default(self, ticker: str) -> Optional[Dict]:
         """
@@ -93,7 +113,7 @@ class MertonModel:
         profile = self.INSTITUTION_PROFILES[ticker]
         vol_data = list(self._vol_buffers[ticker])
 
-        if len(vol_data) < 10:
+        if len(vol_data) < 1:
             # Not enough data; return varied baseline estimates per institution
             base_dd = {"JPM": 3.8, "GS": 3.2, "BAC": 3.5, "C": 2.9, "MS": 3.1}
             dd = base_dd.get(ticker, 3.5)
@@ -115,22 +135,23 @@ class MertonModel:
                 "color": "#22c55e",
             }
 
-        # Step 1: Estimate equity volatility from tick-level returns
-        # Adaptive annualization: use buffer length vs assumed trading period
-        # instead of a hardcoded ticks-per-day (which breaks when data rate changes)
-        returns = np.array(vol_data)
-        tick_vol = float(np.std(returns))
+        # Step 1: Equity vol from EWMA of block returns
+        ewma_var = self._ewma_var.get(ticker, 0.0)
         
-        # Estimate ticks-per-year from actual buffer fill rate
-        # Assume buffer represents ~1 trading session if <2000 ticks
-        n_ticks = len(returns)
-        # Conservative: assume each tick ≈ 1 second in hybrid mode
-        # 6.5 hours × 252 days = 589,680 seconds/year
-        ticks_per_year = min(n_ticks * 252 * 6.5 * 3600 / max(n_ticks, 1), 252 * self.TICKS_PER_TRADING_DAY)
-        equity_vol = tick_vol * np.sqrt(ticks_per_year)  # Annualized
+        if ewma_var > 0:
+            block_vol = np.sqrt(ewma_var)
+        else:
+            returns = np.array(vol_data)
+            block_vol = float(np.std(returns))
+        
+        # Annualize: each block spans ~37 seconds (10 ticks per bank at 0.27 tps)
+        # So blocks_per_trading_day = 23400 sec / 37 sec ≈ 632
+        # Annual factor = 632 * 252 ≈ 159,264
+        BLOCKS_PER_DAY = 632
+        annual_factor = BLOCKS_PER_DAY * 252
+        equity_vol = block_vol * np.sqrt(annual_factor)
         
         # Clamp to realistic range (15% - 120% annualized)
-        # Tighter upper bound — 200% was too permissive and let noise dominate
         equity_vol = float(np.clip(equity_vol, 0.15, 1.20))
 
         # Asset vol = equity vol * (E / A) -- simplified Merton approximation

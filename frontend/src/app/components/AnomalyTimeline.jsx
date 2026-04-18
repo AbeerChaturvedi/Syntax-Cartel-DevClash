@@ -73,8 +73,6 @@ export default function AnomalyTimeline({ scores = {}, tickId = 0 }) {
       },
       yAxis: {
         type: 'value',
-        min: 0,
-        max: 1,
         axisLine: { show: false },
         axisLabel: {
           color: '#64748b',
@@ -162,7 +160,7 @@ export default function AnomalyTimeline({ scores = {}, tickId = 0 }) {
     };
   }, []);
 
-  // Update data
+  // Update data with adaptive Y-axis zoom
   useEffect(() => {
     if (!chartInstance.current || !tickId) return;
 
@@ -189,8 +187,45 @@ export default function AnomalyTimeline({ scores = {}, tickId = 0 }) {
       d.ciss.shift();
     }
 
+    // ── Adaptive Y-axis: auto-zoom to visible data range ──
+    const allValues = [
+      ...d.ifScores, ...d.lstmScores, ...d.combined, ...d.ciss,
+    ].filter((v) => v !== null && v !== undefined);
+
+    let dataMin = Math.min(...allValues);
+    let dataMax = Math.max(...allValues);
+
+    // Always keep the 0.7 alert threshold visible if data is near it
+    if (dataMax > 0.55) {
+      dataMax = Math.max(dataMax, 0.72);
+    }
+
+    // Add 15% padding on each side for breathing room
+    const range = dataMax - dataMin || 0.05;
+    const padding = range * 0.15;
+    let yMin = Math.max(0, dataMin - padding);
+    let yMax = Math.min(1, dataMax + padding);
+
+    // Ensure a minimum visible range so it never looks totally flat
+    const minRange = 0.08; // At least 8% span
+    if (yMax - yMin < minRange) {
+      const mid = (yMin + yMax) / 2;
+      yMin = Math.max(0, mid - minRange / 2);
+      yMax = Math.min(1, mid + minRange / 2);
+    }
+
+    // Round to clean values for nice axis labels
+    yMin = Math.floor(yMin * 20) / 20;   // Snap to 5% increments
+    yMax = Math.ceil(yMax * 20) / 20;
+    yMin = Math.max(0, yMin);
+    yMax = Math.min(1, yMax);
+
     chartInstance.current.setOption({
       xAxis: { data: d.timestamps },
+      yAxis: {
+        min: yMin,
+        max: yMax,
+      },
       series: [
         { data: d.ifScores },
         { data: d.lstmScores },

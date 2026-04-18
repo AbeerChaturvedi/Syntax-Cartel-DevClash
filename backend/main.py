@@ -23,7 +23,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-import aiohttp
+try:
+    import aiohttp
+except Exception:
+    aiohttp = None  # Python 3.14 SSL PermissionError
 
 from utils.config import (
     CORS_ORIGINS, API_KEY, RATE_LIMIT_PER_MINUTE, DEFAULT_TICK_RATE,
@@ -701,6 +704,21 @@ async def get_merton_scores():
     return scores.get("merton", [])
 
 
+@app.get("/api/merton/debug")
+async def get_merton_debug():
+    """Internal state debug for Merton model."""
+    from models.merton_model import merton_model as mm
+    return {
+        ticker: {
+            "tick_count": mm._tick_count.get(ticker, 0),
+            "price_buf_len": len(mm._price_buffers.get(ticker, [])),
+            "vol_buf_len": len(mm._vol_buffers.get(ticker, [])),
+            "ewma_var": mm._ewma_var.get(ticker, 0.0),
+            "last_price": mm._price_buffers[ticker][-1] if mm._price_buffers.get(ticker) else None,
+        }
+        for ticker in mm.INSTITUTION_PROFILES
+    }
+
 @app.get("/api/merton/srisk")
 async def get_system_srisk():
     """Get aggregate System SRISK — total capital shortfall across all institutions."""
@@ -905,26 +923,31 @@ async def get_market_news():
     url = f"https://newsdata.io/api/1/news?apikey={NEWSDATA_API_KEY}&category=business,top&language=en&size=10"
     
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=5) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    articles = data.get("results", [])
-                    # Pick relevant fields
-                    formatted_articles = []
-                    for art in articles:
-                        formatted_articles.append({
-                            "title": art.get("title", ""),
-                            "link": art.get("link", ""),
-                            "source": art.get("source_id", "News"),
-                            "pubDate": art.get("pubDate", ""),
-                        })
-                    _news_cache["data"] = formatted_articles
-                    _news_cache["timestamp"] = now
-                    return {"status": "ok", "cached": False, "articles": formatted_articles}
-                else:
-                    api_log.warning(f"NewsData API returned {response.status}")
-                    return {"status": "error", "message": "News fetch failed", "articles": _news_cache["data"]}
+        import urllib.request
+        import ssl
+
+        def _fetch_news():
+            import ssl as _ssl
+            ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
+            req = urllib.request.Request(url, headers={"User-Agent": "Velure/3.0"})
+            with urllib.request.urlopen(req, timeout=8, context=ctx) as resp:
+                return json.loads(resp.read().decode())
+
+        data = await asyncio.get_event_loop().run_in_executor(None, _fetch_news)
+        articles = data.get("results", [])
+        formatted_articles = []
+        for art in articles:
+            formatted_articles.append({
+                "title": art.get("title", ""),
+                "link": art.get("link", ""),
+                "source": art.get("source_id", "News"),
+                "pubDate": art.get("pubDate", ""),
+            })
+        _news_cache["data"] = formatted_articles
+        _news_cache["timestamp"] = now
+        return {"status": "ok", "cached": False, "articles": formatted_articles}
     except Exception as e:
         api_log.error(f"News fetch error: {e}")
         return {"status": "error", "message": str(e), "articles": _news_cache["data"]}
