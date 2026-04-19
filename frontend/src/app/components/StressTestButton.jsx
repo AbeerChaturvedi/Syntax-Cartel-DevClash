@@ -1,11 +1,13 @@
 /**
  * StressTestButton — Triggers crisis simulation via backend API.
  * Includes preset scenarios + custom activation with visual feedback.
+ * All emojis replaced with Lucide SVGs.
  */
 'use client';
 
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { AlertTriangle, Check, Target } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -92,14 +94,16 @@ export default function StressTestButton({ crisisMode = false }) {
             animate={{ scale: [1, 1.02, 1] }}
             transition={{ repeat: Infinity, duration: 1.5 }}
           >
-            ⚠ {preset ? `${preset.label}` : 'CRISIS'} ACTIVE
+            <AlertTriangle size={14} />
+            {preset ? `${preset.label}` : 'CRISIS'} ACTIVE
           </motion.button>
           <button
             className="deactivate-btn"
             onClick={deactivateCrisis}
             disabled={loading}
           >
-            ✓ Restore Normal
+            <Check size={14} />
+            Restore Normal
           </button>
         </div>
       </div>
@@ -143,8 +147,8 @@ export default function StressTestButton({ crisisMode = false }) {
                 style={{ '--preset-color': preset.color }}
                 onClick={() => activatePreset(preset.id)}
                 disabled={loading}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.97 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
               >
                 <span className="preset-tag" style={{ color: preset.color }}>{preset.tag}</span>
                 <span className="preset-label">{preset.label}</span>
@@ -155,10 +159,10 @@ export default function StressTestButton({ crisisMode = false }) {
               className="crisis-preset-btn custom"
               onClick={activateCustom}
               disabled={loading}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
             >
-              <span className="preset-emoji">🎯</span>
+              <Target size={14} style={{ color: 'var(--indigo)' }} />
               <span className="preset-label">Custom</span>
               <span className="preset-desc">85% intensity, 45s</span>
             </motion.button>
