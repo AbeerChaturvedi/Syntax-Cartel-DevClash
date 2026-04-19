@@ -9,7 +9,13 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws/dashboard';
+const getWSUrl = () => {
+  if (typeof window !== 'undefined') {
+    return process.env.NEXT_PUBLIC_WS_URL || `ws://${window.location.hostname}:8000/ws/dashboard`;
+  }
+  return process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws/dashboard';
+};
+const WS_URL = getWSUrl();
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 const HEARTBEAT_INTERVAL_MS = 15000;
@@ -94,11 +100,12 @@ export function useWebSocket() {
       };
 
       ws.onerror = (err) => {
-        console.error('[Velure WS] Error:', err);
+        // Downgrade to warn so NextJS Turbopack doesn't freeze the screen with a red overlay
+        console.warn('[Velure WS] Warning:', err);
         ws.close();
       };
     } catch (e) {
-      console.error('[Velure WS] Connection failed:', e);
+      console.warn('[Velure WS] Connection failed:', e);
       const delay = Math.min(RECONNECT_BASE_MS * 2, RECONNECT_MAX_MS);
       reconnectTimeoutRef.current = setTimeout(connect, delay);
     }
