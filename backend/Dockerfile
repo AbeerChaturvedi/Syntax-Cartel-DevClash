@@ -30,7 +30,7 @@ FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
+    PYTHONPATH=/install/lib/python3.11/site-packages:/app \
     PATH=/install/bin:$PATH \
     PIP_NO_CACHE_DIR=1
 
