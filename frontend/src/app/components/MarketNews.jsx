@@ -14,7 +14,8 @@ export default function MarketNews() {
       try {
         setLoading(true);
         // Proxy through backend to avoid exposing API keys
-        const res = await fetch('http://localhost:8000/api/news');
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${baseUrl}/api/news`);
         if (!res.ok) {
           throw new Error('Network response was not ok');
         }
