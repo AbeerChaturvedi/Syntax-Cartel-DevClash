@@ -1,6 +1,7 @@
 /**
  * CISSGauge — Composite Indicator of Systemic Stress
  * SVG arc gauge with smooth CSS transitions.
+ * UPDATED: Gray base track (#E5E7EB via CSS var) visible on white backgrounds.
  */
 'use client';
 
@@ -8,11 +9,11 @@ import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 function getColor(score) {
-  if (score < 0.3) return { color: '#4ade80', bg: 'rgba(74,222,128,0.10)', label: 'NORMAL' };
-  if (score < 0.5) return { color: '#facc15', bg: 'rgba(250,204,21,0.10)', label: 'ELEVATED' };
-  if (score < 0.7) return { color: '#fb923c', bg: 'rgba(251,146,60,0.10)', label: 'HIGH' };
-  if (score < 0.85) return { color: '#f87171', bg: 'rgba(248,113,113,0.10)', label: 'SEVERE' };
-  return { color: '#ef4444', bg: 'rgba(239,68,68,0.12)', label: 'CRITICAL' };
+  if (score < 0.3) return { color: '#16a34a', bg: 'rgba(22,163,74,0.08)', label: 'NORMAL' };
+  if (score < 0.5) return { color: '#ca8a04', bg: 'rgba(202,138,4,0.08)', label: 'ELEVATED' };
+  if (score < 0.7) return { color: '#ea580c', bg: 'rgba(234,88,12,0.08)', label: 'HIGH' };
+  if (score < 0.85) return { color: '#dc2626', bg: 'rgba(220,38,38,0.08)', label: 'SEVERE' };
+  return { color: '#dc2626', bg: 'rgba(220,38,38,0.10)', label: 'CRITICAL' };
 }
 
 export default function CISSGauge({ cissScore = 0, severity = 'NORMAL' }) {
@@ -41,10 +42,10 @@ export default function CISSGauge({ cissScore = 0, severity = 'NORMAL' }) {
   const bgArc = `M ${startX} ${startY} A ${radius} ${radius} 0 0 1 ${endX} ${endY}`;
 
   return (
-    <div className="card ciss-gauge-container">
+    <div className="widget-card ciss-gauge-container">
       <div className="card-header">
         <span className="card-title">Systemic Stress Index</span>
-        <span className="card-badge" style={{ background: bg, color }}>
+        <span className="card-badge" style={{ background: bg, color, borderColor: color }}>
           CISS
         </span>
       </div>
@@ -59,14 +60,14 @@ export default function CISSGauge({ cissScore = 0, severity = 'NORMAL' }) {
             const oy = cy - (radius + 4) * Math.sin(a);
             return (
               <line key={t} x1={ix} y1={iy} x2={ox} y2={oy}
-                stroke="rgba(148,163,184,0.25)" strokeWidth="1" />
+                stroke="var(--border-active)" strokeWidth="1" />
             );
           })}
-          {/* Background arc */}
+          {/* Background arc — VISIBLE neutral gray track */}
           <path
             d={bgArc}
             fill="none"
-            stroke="rgba(255,255,255,0.06)"
+            stroke="var(--gauge-track)"
             strokeWidth="8"
             strokeLinecap="round"
           />
@@ -97,7 +98,7 @@ export default function CISSGauge({ cissScore = 0, severity = 'NORMAL' }) {
             }}
           />
           {/* Center dot */}
-          <circle cx={cx} cy={cy} r="2" fill="rgba(148,163,184,0.3)" />
+          <circle cx={cx} cy={cy} r="2" fill="var(--border-active)" />
         </svg>
 
         <div
