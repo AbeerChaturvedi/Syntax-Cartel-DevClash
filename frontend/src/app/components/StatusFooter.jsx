@@ -1,11 +1,13 @@
 /**
  * StatusFooter — Persistent bottom bar showing pipeline speed, ticks,
  * and quick controls for demo speed adjustment.
+ * All emojis replaced with Lucide SVGs.
  */
 'use client';
 
 import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { AlertTriangle } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -56,7 +58,8 @@ export default function StatusFooter({ tickId = 0, crisisMode = false, isConnect
             animate={{ opacity: [1, 0.5, 1] }}
             transition={{ repeat: Infinity, duration: 1 }}
           >
-            ⚠ CRISIS ACTIVE
+            <AlertTriangle size={12} />
+            CRISIS ACTIVE
           </motion.span>
         )}
       </div>
