@@ -102,6 +102,18 @@ class BacktestHarness:
                 "reason": "no historical data available in data/historical/ for this window",
             }
 
+        # Independent evaluation: reset all stateful pipeline components so each
+        # crisis window is scored from a clean slate (no cross-window contamination).
+        from features.state_builder import state_builder
+        from models.ciss_scorer import ciss_scorer
+        from models.copula_model import copula_model
+        from models.lstm_autoencoder import temporal_detector
+        ensemble.reset()
+        state_builder.reset()
+        ciss_scorer.reset()
+        copula_model.reset()
+        temporal_detector.reset_runtime()
+
         # Collect date-indexed scores + labels
         per_date_scores: Dict[str, float] = {}
         per_date_labels: Dict[str, int] = {}

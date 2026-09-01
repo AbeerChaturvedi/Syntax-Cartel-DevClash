@@ -103,6 +103,12 @@ class StateBuilder:
         """True if we have at least some price history."""
         return any(len(h) >= 10 for h in self._history.values())
 
+    def reset(self) -> None:
+        """Clear all price history (for independent backtest windows)."""
+        for h in self._history.values():
+            h.clear()
+        self._tick_count = 0
+
 
 # Singleton — shared across ensemble and features pipeline
 state_builder = StateBuilder()

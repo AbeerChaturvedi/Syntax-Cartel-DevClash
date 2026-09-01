@@ -276,6 +276,14 @@ class EnsembleOrchestrator:
         """Return the most recent computed scores."""
         return self._latest_scores
 
+    def reset(self) -> None:
+        """Reset EMA smoothing + batch buffers (for independent backtest windows)."""
+        self._ema = {}
+        self._batch_buffer = []
+        self._last_flush = time.time()
+        self._latest_scores = {}
+        self._alert_history.clear()
+
 
 # Singleton
 ensemble = EnsembleOrchestrator()

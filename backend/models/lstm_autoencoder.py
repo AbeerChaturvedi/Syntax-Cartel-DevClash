@@ -289,6 +289,15 @@ class TemporalAnomalyDetector:
             return True
         return False
 
+    def reset_runtime(self) -> None:
+        """Clear runtime buffers and force adaptive-threshold re-warmup, keeping
+        the trained weights (for independent backtest windows)."""
+        self._buffer.clear()
+        self._mse_history.clear()
+        self._warmup_mses = []
+        self._tick_count = 0
+        self._threshold_calibrated = False
+
 
 # Singleton — sequence length & dims sourced from .env via config
 temporal_detector = TemporalAnomalyDetector(

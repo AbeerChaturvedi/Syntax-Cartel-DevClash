@@ -240,6 +240,15 @@ class CISSScorer:
             "score_history": list(self._score_history)[-100:],
         }
 
+    def reset(self) -> None:
+        """Clear rolling buffers + EMA state (for independent backtest windows)."""
+        for buf in self.segment_buffers.values():
+            buf.clear()
+        self._score_history.clear()
+        self._cached_corr = np.eye(self.n_segments)
+        self._corr_tick_counter = 0
+        self._ema_ciss = 0.0
+
 
 # Singleton — window size sourced from .env via config
 ciss_scorer = CISSScorer(window_size=CISS_WINDOW)

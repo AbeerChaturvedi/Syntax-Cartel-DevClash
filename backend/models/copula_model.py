@@ -306,6 +306,18 @@ class TCopulaTailDependence:
             "joint_crash_prob_1pct": round(self.joint_crash_probability(0.01), 6),
         }
 
+    def reset(self) -> None:
+        """Reset GARCH filters + residual buffers (for independent backtest windows)."""
+        n = len(self.SEGMENTS)
+        for seg in self.SEGMENTS:
+            self._garch[seg] = GARCH11(self.window)
+            self._residuals[seg].clear()
+        self._nu = 8.0
+        self._rho = np.eye(n)
+        self._lambda_L = np.zeros((n, n))
+        self._warm = False
+        self._update_counter = 0
+
 
 # Singleton
 copula_model = TCopulaTailDependence()
