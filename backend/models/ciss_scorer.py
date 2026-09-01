@@ -15,6 +15,8 @@ from collections import deque
 from typing import Dict
 from scipy.stats import rankdata
 
+from utils.config import CISS_WINDOW
+
 
 class CISSScorer:
     """Production-grade CISS implementation with anti-drift guarantees."""
@@ -239,5 +241,5 @@ class CISSScorer:
         }
 
 
-# Singleton
-ciss_scorer = CISSScorer()
+# Singleton — window size sourced from .env via config
+ciss_scorer = CISSScorer(window_size=CISS_WINDOW)

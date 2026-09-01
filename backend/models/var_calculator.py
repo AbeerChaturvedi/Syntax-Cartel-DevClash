@@ -13,6 +13,8 @@ from scipy import stats
 from collections import deque
 from typing import Dict, Optional
 
+from utils.config import VAR_WINDOW, VAR_CONFIDENCE
+
 
 class VaRCalculator:
     """
@@ -152,5 +154,5 @@ class VaRCalculator:
         }
 
 
-# Singleton
-var_calculator = VaRCalculator()
+# Singleton — window & confidence sourced from .env via config
+var_calculator = VaRCalculator(window_size=VAR_WINDOW, confidence=VAR_CONFIDENCE)

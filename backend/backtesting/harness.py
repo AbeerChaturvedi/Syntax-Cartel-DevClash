@@ -224,8 +224,9 @@ def _roc_curve(labels: np.ndarray, scores: np.ndarray) -> Tuple[np.ndarray, np.n
 
 
 def _auc(fpr: np.ndarray, tpr: np.ndarray) -> float:
-    # Trapezoidal integration
-    return float(np.trapz(tpr, fpr))
+    # Trapezoidal integration. np.trapz was removed in NumPy 2.0 -> np.trapezoid.
+    _trapz = getattr(np, "trapezoid", None) or np.trapz
+    return float(_trapz(tpr, fpr))
 
 
 # Singleton

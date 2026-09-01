@@ -8,6 +8,8 @@ from sklearn.preprocessing import StandardScaler
 import joblib
 import os
 
+from utils.config import IF_CONTAMINATION, IF_N_ESTIMATORS
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "models", "isolation_forest.pkl")
 SCALER_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "models", "if_scaler.pkl")
 
@@ -157,5 +159,8 @@ class AnomalyDetectorIF:
         return False
 
 
-# Singleton
-anomaly_detector_if = AnomalyDetectorIF()
+# Singleton — hyperparameters sourced from .env via config
+anomaly_detector_if = AnomalyDetectorIF(
+    contamination=IF_CONTAMINATION,
+    n_estimators=IF_N_ESTIMATORS,
+)

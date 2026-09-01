@@ -33,6 +33,8 @@ import torch.nn as nn
 import os
 from collections import deque
 
+from utils.config import LSTM_SEQ_LENGTH, LSTM_HIDDEN_DIM, LSTM_LATENT_DIM
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "models", "lstm_autoencoder.pt")
 
 # ── Fixed normalizer scales per feature slot (index mod 4) ──────────────────
@@ -89,11 +91,14 @@ class TemporalAnomalyDetector:
     # Number of ticks between adaptive threshold updates
     THRESHOLD_UPDATE_INTERVAL = 500
 
-    def __init__(self, input_dim: int = 60, seq_length: int = 20):
+    def __init__(self, input_dim: int = 60, seq_length: int = 20,
+                 hidden_dim: int = 64, latent_dim: int = 32):
         self.input_dim = input_dim
         self.seq_length = seq_length
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = LSTMAutoencoder(input_dim=input_dim).to(self.device)
+        self.model = LSTMAutoencoder(
+            input_dim=input_dim, hidden_dim=hidden_dim, latent_dim=latent_dim
+        ).to(self.device)
         self.model.eval()
 
         self.is_fitted = False
@@ -285,5 +290,9 @@ class TemporalAnomalyDetector:
         return False
 
 
-# Singleton
-temporal_detector = TemporalAnomalyDetector()
+# Singleton — sequence length & dims sourced from .env via config
+temporal_detector = TemporalAnomalyDetector(
+    seq_length=LSTM_SEQ_LENGTH,
+    hidden_dim=LSTM_HIDDEN_DIM,
+    latent_dim=LSTM_LATENT_DIM,
+)

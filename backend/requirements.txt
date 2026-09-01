@@ -15,3 +15,6 @@ aiohttp==3.10.0
 python-multipart==0.0.9
 # uvloop: 2-4x faster async I/O on Linux/macOS (Docker prod). Skipped on Windows.
 uvloop==0.20.0; sys_platform != "win32"
+# Tooling only (not imported by the app): historical data fetch + model training
+# scripts/fetch_historical.py, scripts/train_on_real.py
+yfinance>=0.2.40
