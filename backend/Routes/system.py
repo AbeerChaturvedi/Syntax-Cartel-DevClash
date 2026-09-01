@@ -92,36 +92,36 @@ async def get_data_mode():
 async def get_pipeline_metrics():
     """Real-time pipeline throughput and health metrics for the dashboard."""
     now = time.time()
-    uptime = round(now - _system_metrics.get("start_time", now), 1)
-    total_ticks = _system_metrics["total_ticks_processed"]
+    uptime = round(now - g._system_metrics.get("start_time", now), 1)
+    total_ticks = g._system_metrics["total_ticks_processed"]
     tps = round(total_ticks / max(uptime, 1.0), 2)
 
-    # Twelve Data status (FX connector)
+    # Twelve Data status (FX connector) — optional, present only in live modes
     td_status = None
-    try:
-        _twelve_data = getattr(__import__("globals", fromlist=["_twelve_data"]), "_twelve_data", None)
-        if _twelve_data is not None:
+    _twelve_data = getattr(g, "_twelve_data", None)
+    if _twelve_data is not None:
+        try:
             td_status = _twelve_data.get_status()
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     return {
         "ticks_per_second": tps,
         "total_ticks": total_ticks,
-        "avg_pipeline_latency_ms": round(_system_metrics.get("avg_pipeline_latency_ms", 0.0), 2),
+        "avg_pipeline_latency_ms": round(g._system_metrics.get("avg_pipeline_latency_ms", 0.0), 2),
         "uptime_seconds": uptime,
-        "connected_clients": len(manager.active_connections),
-        "pipeline_errors": _system_metrics.get("pipeline_errors", 0),
-        "db_writes": _system_metrics.get("db_writes", 0),
-        "db_errors": _system_metrics.get("db_errors", 0),
-        "peak_ciss": round(_system_metrics.get("peak_ciss", 0.0), 4),
-        "peak_combined": round(_system_metrics.get("peak_combined", 0.0), 4),
-        "crisis_events": _system_metrics.get("crisis_events", 0),
-        "total_broadcasts": _system_metrics.get("total_broadcasts", 0),
-        "data_mode": _data_mode,
-        "db_connected": _db_available,
+        "connected_clients": len(g.manager.active_connections),
+        "pipeline_errors": g._system_metrics.get("pipeline_errors", 0),
+        "db_writes": g._system_metrics.get("db_writes", 0),
+        "db_errors": g._system_metrics.get("db_errors", 0),
+        "peak_ciss": round(g._system_metrics.get("peak_ciss", 0.0), 4),
+        "peak_combined": round(g._system_metrics.get("peak_combined", 0.0), 4),
+        "crisis_events": g._system_metrics.get("crisis_events", 0),
+        "total_broadcasts": g._system_metrics.get("total_broadcasts", 0),
+        "data_mode": g._data_mode,
+        "db_connected": g._db_available,
         "redis_connected": redis_streams._connected,
-        "finnhub_connected": _finnhub.connected if _finnhub else False,
+        "finnhub_connected": g._finnhub.connected if g._finnhub else False,
         "twelve_data": td_status,
     }
 
