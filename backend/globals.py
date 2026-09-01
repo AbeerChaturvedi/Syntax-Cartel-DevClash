@@ -52,6 +52,7 @@ _pipeline_running = False
 _tick_rate = DEFAULT_TICK_RATE
 _data_mode = DATA_MODE  # "simulator" | "finnhub" | "hybrid"
 _finnhub = None
+_twelve_data = None       # TwelveDataConnector singleton (live FX prices)
 _last_crisis_ckpt_ts = 0.0
 
 _news_cache = {"data": None, "timestamp": 0.0}

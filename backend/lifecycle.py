@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from utils.logger import pipeline_log, db_log
-from utils.config import FINNHUB_API_KEY, DATA_MODE
+from utils.config import FINNHUB_API_KEY, TWELVE_DATA_API_KEY, TWELVE_DATA_POLL_INTERVAL, DATA_MODE
 from utils.alerting import alert_dispatcher
 from utils.model_persistence import get_checkpoint_manager, CHECKPOINT_VERSION
 from ingestion.redis_streams import redis_streams
@@ -114,6 +114,27 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             pipeline_log.warning(f"Finnhub init failed ({e}), using simulator only")
 
+    # Initialize Twelve Data FX connector (EUR/USD, GBP/USD, USD/JPY)
+    if TWELVE_DATA_API_KEY:
+        try:
+            from ingestion.twelve_data_connector import twelve_data_connector
+            twelve_data_connector.configure(
+                api_key=TWELVE_DATA_API_KEY,
+                poll_interval=TWELVE_DATA_POLL_INTERVAL,
+            )
+            await twelve_data_connector.start()
+            g._twelve_data = twelve_data_connector
+            pipeline_log.info(
+                f"Twelve Data FX connector active (poll={TWELVE_DATA_POLL_INTERVAL}s)",
+                extra={"component": "twelve_data"},
+            )
+        except Exception as e:
+            pipeline_log.warning(f"Twelve Data init failed ({e}), FX prices may be absent")
+            g._twelve_data = None
+    else:
+        pipeline_log.warning("No TWELVE_DATA_API_KEY — live FX prices unavailable")
+        g._twelve_data = None
+
     g._pipeline_task = asyncio.create_task(data_pipeline())
     g._checkpoint_task = asyncio.create_task(_periodic_checkpoint_loop())
 
@@ -133,6 +154,8 @@ async def lifespan(app: FastAPI):
         pipeline_log.warning(f"final checkpoint failed: {e}")
     if g._finnhub:
         await g._finnhub.stop()
+    if getattr(g, "_twelve_data", None):
+        await g._twelve_data.stop()
     for t in (g._pipeline_task, g._checkpoint_task):
         if t:
             t.cancel()

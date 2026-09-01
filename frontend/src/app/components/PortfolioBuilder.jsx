@@ -10,13 +10,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+// Exact tickers the backend portfolio VaR endpoint accepts (matches simulator.ASSETS)
+const VALID_TICKERS = new Set([
+  'SPY', 'QQQ', 'DIA', 'IWM', 'XLF',
+  'JPM', 'GS', 'BAC', 'C', 'MS',
+  'EURUSD', 'GBPUSD', 'USDJPY',
+  'BTCUSD', 'ETHUSD',
+]);
+
 const DEFAULT_PORTFOLIO = [
-  { ticker: 'SPY', weight: 0.35 },
-  { ticker: 'QQQ', weight: 0.20 },
-  { ticker: 'DIA', weight: 0.15 },
+  { ticker: 'SPY',    weight: 0.35 },
+  { ticker: 'QQQ',    weight: 0.20 },
+  { ticker: 'DIA',    weight: 0.15 },
   { ticker: 'BTCUSD', weight: 0.10 },
   { ticker: 'EURUSD', weight: 0.10 },
-  { ticker: 'XLF', weight: 0.10 },
+  { ticker: 'XLF',    weight: 0.10 },
 ];
 
 const QUICK_PORTFOLIOS = [
@@ -135,11 +143,15 @@ export default function PortfolioBuilder() {
             <tr>
               <th>Ticker</th>
               <th>Weight</th>
+              <th style={{ width: '20px' }}></th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
+            {rows.map((r, i) => {
+              const isValid = r.ticker && VALID_TICKERS.has(r.ticker.toUpperCase());
+              const hasValue = r.ticker.length > 0;
+              return (
               <tr key={i}>
                 <td>
                   <input
@@ -149,6 +161,7 @@ export default function PortfolioBuilder() {
                     onChange={(e) => updateRow(i, 'ticker', e.target.value.toUpperCase())}
                     placeholder="SPY"
                     maxLength={8}
+                    style={{ borderColor: hasValue && !isValid ? 'var(--warning)' : undefined }}
                   />
                 </td>
                 <td>
@@ -162,11 +175,19 @@ export default function PortfolioBuilder() {
                     max="1"
                   />
                 </td>
+                <td style={{ textAlign: 'center', fontSize: '12px' }}>
+                  {hasValue ? (
+                    isValid
+                      ? <span title="Recognised ticker" style={{ color: '#22c55e' }}>✓</span>
+                      : <span title={`Unknown — will be dropped. Valid: ${[...VALID_TICKERS].join(', ')}`} style={{ color: '#f97316', cursor: 'help' }}>!</span>
+                  ) : null}
+                </td>
                 <td>
                   <button className="portfolio-remove-btn" onClick={() => removeRow(i)}>×</button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         <div className="portfolio-controls-row">

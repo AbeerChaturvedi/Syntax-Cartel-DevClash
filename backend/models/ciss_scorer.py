@@ -227,6 +227,8 @@ class CISSScorer:
                 segments[name] = {
                     "raw_value": round(float(buf[-1]), 6),
                     "calibrated_score": round(float(self._calibrated_score(name, buf[-1])), 4),
+                    # cdf_score: alias used by ExplainabilityPanel.jsx frontend component
+                    "cdf_score": round(float(self._calibrated_score(name, buf[-1])), 4),
                     "buffer_size": len(buf),
                 }
 

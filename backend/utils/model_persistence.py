@@ -138,6 +138,7 @@ class CheckpointManager:
             torch.save({
                 "model_state_dict": temporal_detector.model.state_dict(),
                 "threshold": float(temporal_detector.threshold),
+                "threshold_calibrated": temporal_detector._threshold_calibrated,
                 "mse_history": list(temporal_detector._mse_history)[-500:],
             }, tmp / "lstm_autoencoder.pt")
             manifest["components"].append({
@@ -155,10 +156,13 @@ class CheckpointManager:
             p = src / "lstm_autoencoder.pt"
             if not p.exists():
                 return False
-            ckpt = torch.load(p, map_location=temporal_detector.device)
+            ckpt = torch.load(p, map_location=temporal_detector.device, weights_only=False)
             temporal_detector.model.load_state_dict(ckpt["model_state_dict"])
-            temporal_detector.threshold = float(ckpt.get("threshold", 0.1))
-            temporal_detector._mse_history = list(ckpt.get("mse_history", []))
+            temporal_detector.threshold = float(ckpt.get("threshold", 1.0))
+            temporal_detector._threshold_calibrated = bool(ckpt.get("threshold_calibrated", False))
+            loaded_mse = ckpt.get("mse_history", [])
+            temporal_detector._mse_history = type(temporal_detector._mse_history)(loaded_mse,
+                maxlen=temporal_detector._mse_history.maxlen)
             temporal_detector.model.eval()
             temporal_detector.is_fitted = True
             return True

@@ -74,8 +74,9 @@ class PortfolioRisk:
         # marginal: dσp/dw_i = (Σw)_i / σp
         marginal = cov @ w / port_var_gaussian
         component_var = w * marginal  # contribution to σp (sums to σp)
-        # Scale to dollar VaR at given confidence
-        component_dollar = (component_var * z) * notional / port_var_gaussian * param_var * notional if port_var_gaussian > 0 else component_var
+        # Scale to dollar VaR at given confidence using Euler allocation:
+        # component_dollar_i = (w_i * (Σw)_i / σp) * portfolio_dollar_VaR
+        component_dollar = (component_var / port_var_gaussian) * param_var * notional if port_var_gaussian > 0 else component_var * notional
 
         # Individual-asset VaR
         ind_var = {}
