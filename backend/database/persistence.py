@@ -32,22 +32,21 @@ async def _ensure_source_cache(conn):
     if _source_id_cache:
         return
 
-    # Load existing rows
-    rows = await conn.fetch("SELECT source_id, source_name FROM dim_source")
+    # Load existing rows. Schema column is `provider_name` (not source_name).
+    rows = await conn.fetch("SELECT source_id, provider_name FROM dim_source")
     for r in rows:
-        _source_id_cache[r["source_name"]] = r["source_id"]
+        _source_id_cache[r["provider_name"]] = r["source_id"]
 
-    # Ensure 'Twelve Data' row exists (may be new since seed was written)
+    # Ensure rows exist for sources that may post-date the seed (Twelve Data, Replay)
     required = {"Finnhub", "Twelve Data", "Simulator", "Replay"}
     for name in required:
         if name not in _source_id_cache:
             try:
                 sid = await conn.fetchval(
-                    """INSERT INTO dim_source (source_name, description)
-                       VALUES ($1, $2)
-                       ON CONFLICT (source_name) DO UPDATE SET source_name=EXCLUDED.source_name
+                    """INSERT INTO dim_source (provider_name)
+                       VALUES ($1)
                        RETURNING source_id""",
-                    name, f"Live data from {name}",
+                    name,
                 )
                 _source_id_cache[name] = sid
                 db_log.info(f"dim_source: ensured row for '{name}' (id={sid})")
