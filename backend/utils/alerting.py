@@ -251,20 +251,40 @@ class AlertDispatcher:
             return {"ok": False, "error": str(e)}
 
     async def _post_json(self, url: str, payload: dict) -> Dict:
-        if aiohttp is None:
-            return {"ok": False, "error": "aiohttp unavailable (Python 3.14 SSL issue)"}
-        try:
-            timeout = aiohttp.ClientTimeout(total=5)
-            async with aiohttp.ClientSession(timeout=timeout) as sess:
-                async with sess.post(url, json=payload) as resp:
-                    body_preview = (await resp.text())[:200]
-                    return {
-                        "ok": 200 <= resp.status < 300,
-                        "status": resp.status,
-                        "body_preview": body_preview,
-                    }
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        """POST JSON to a webhook URL. Uses aiohttp when available,
+        falls back to synchronous urllib in a thread otherwise."""
+        if aiohttp is not None:
+            try:
+                timeout = aiohttp.ClientTimeout(total=5)
+                async with aiohttp.ClientSession(timeout=timeout) as sess:
+                    async with sess.post(url, json=payload) as resp:
+                        body_preview = (await resp.text())[:200]
+                        return {
+                            "ok": 200 <= resp.status < 300,
+                            "status": resp.status,
+                            "body_preview": body_preview,
+                        }
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+        else:
+            # urllib fallback — runs in thread to stay non-blocking
+            def _sync_post():
+                import urllib.request as _urllib
+                import ssl as _ssl
+                import json as _json
+                data = _json.dumps(payload).encode("utf-8")
+                req = _urllib.Request(
+                    url, data=data,
+                    headers={"Content-Type": "application/json", "User-Agent": "Velure/3.0"},
+                )
+                ctx = _ssl.create_default_context()
+                with _urllib.urlopen(req, timeout=5, context=ctx) as r:
+                    return r.status
+            try:
+                status = await asyncio.to_thread(_sync_post)
+                return {"ok": 200 <= status < 300, "status": status}
+            except Exception as e:
+                return {"ok": False, "error": f"urllib fallback: {e}"}
 
 
 # Singleton

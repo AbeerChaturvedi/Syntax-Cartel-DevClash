@@ -6,34 +6,23 @@
 
 import { motion } from 'framer-motion';
 
-const FEATURE_LABELS = {
-  'feature_0': 'SPY Return',
-  'feature_1': 'SPY Volatility',
-  'feature_2': 'SPY Mean',
-  'feature_3': 'SPY Max|Ret|',
-  'feature_4': 'QQQ Return',
-  'feature_5': 'QQQ Volatility',
-  'feature_8': 'DIA Return',
-  'feature_9': 'DIA Volatility',
-  'feature_12': 'IWM Return',
-  'feature_16': 'XLF Return',
-  'feature_17': 'XLF Volatility',
-  'feature_20': 'JPM Return',
-  'feature_24': 'GS Return',
-  'feature_28': 'BAC Return',
-  'feature_32': 'C Return',
-  'feature_36': 'MS Return',
-  'feature_40': 'EUR/USD Return',
-  'feature_44': 'GBP/USD Return',
-  'feature_48': 'USD/JPY Return',
-  'feature_52': 'US10Y Return',
-  'feature_56': 'US2Y Return',
-  'feature_60': 'SOFR Return',
-  'feature_64': 'BTC Return',
-  'feature_65': 'BTC Volatility',
-  'feature_68': 'ETH Return',
-  'feature_69': 'ETH Volatility',
-};
+// Assets in the exact alphabetical order used by state_builder.py
+// 15 assets × 4 features each = 60 total features (feature_0 … feature_59)
+const TRACKED_ASSETS = [
+  'BAC', 'BTCUSD', 'C', 'DIA', 'ETHUSD',
+  'EURUSD', 'GBPUSD', 'GS', 'IWM', 'JPM',
+  'MS', 'QQQ', 'SPY', 'USDJPY', 'XLF',
+];
+const FEATURE_NAMES = ['Return', 'Volatility', 'Mean Return', 'Max |Return|'];
+
+// Build the label map programmatically — guarantees correctness with no hand-editing
+const FEATURE_LABELS = {};
+TRACKED_ASSETS.forEach((asset, ai) => {
+  FEATURE_NAMES.forEach((feat, fi) => {
+    FEATURE_LABELS[`feature_${ai * 4 + fi}`] = `${asset} ${feat}`;
+  });
+});
+
 
 function prettyLabel(key) {
   return FEATURE_LABELS[key] || key.replace('feature_', 'F');

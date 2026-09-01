@@ -31,6 +31,13 @@ async def activate_stress_test(request: StressTestRequest):
     """
     if not ENABLE_SIMULATOR:
         raise HTTPException(status_code=400, detail="Crisis simulation requires ENABLE_SIMULATOR=true")
+        
+    import globals as g
+    if g._data_mode in ("finnhub", "hybrid") and getattr(g, "_finnhub", None):
+        for k, v in g._finnhub._last_prices.items():
+            if k in simulator.prices:
+                simulator.prices[k] = v
+                
     simulator.activate_crisis(intensity=request.intensity)
     
     # Auto-deactivate after duration
@@ -60,6 +67,12 @@ async def activate_crisis_preset(request: CrisisPresetRequest):
     preset = CRISIS_PRESETS.get(request.scenario)
     if not preset and request.scenario != "custom":
         raise HTTPException(status_code=400, detail=f"Unknown preset: {request.scenario}")
+
+    import globals as g
+    if g._data_mode in ("finnhub", "hybrid") and getattr(g, "_finnhub", None):
+        for k, v in g._finnhub._last_prices.items():
+            if k in simulator.prices:
+                simulator.prices[k] = v
 
     intensity = request.intensity if request.scenario == "custom" else preset["intensity"]
     duration = request.duration_seconds if request.scenario == "custom" else preset["duration_seconds"]

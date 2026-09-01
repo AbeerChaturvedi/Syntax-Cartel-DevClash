@@ -28,20 +28,19 @@ except ImportError:
     websockets = None
 
 
-# Finnhub symbol mapping → internal asset names (15-asset universe)
+# Finnhub symbol mapping → internal asset names
+# NOTE: Forex (EUR/USD, GBP/USD, USD/JPY) is handled by TwelveDataConnector
+# because Finnhub OANDA symbols require a paid subscription on free-tier keys.
 FINNHUB_SYMBOL_MAP = {
-    # US Equities — ETFs (Finnhub uses plain tickers)
+    # US Equities — ETFs
     "SPY": "SPY", "QQQ": "QQQ", "DIA": "DIA", "IWM": "IWM", "XLF": "XLF",
     # US Equities — Banks
     "JPM": "JPM", "GS": "GS", "BAC": "BAC", "C": "C", "MS": "MS",
-    # Forex (OANDA — may need paid plan on free tier)
-    "OANDA:EUR_USD": "EURUSD", "OANDA:GBP_USD": "GBPUSD",
-    "OANDA:USD_JPY": "USDJPY",
-    # Crypto (Binance — free tier)
+    # Crypto (Binance — free tier, unlimited)
     "BINANCE:BTCUSDT": "BTCUSD", "BINANCE:ETHUSDT": "ETHUSD",
 }
 
-# Reverse mapping for subscriptions
+# Reverse mapping for subscriptions (equities + crypto only)
 SUBSCRIBE_SYMBOLS = list(FINNHUB_SYMBOL_MAP.keys())
 
 
@@ -193,7 +192,12 @@ class FinnhubConnector:
                 await self._on_tick(tick_data)
 
     def _build_tick(self) -> Optional[dict]:
-        """Build a normalized tick payload from buffered trades."""
+        """Build a normalized tick payload from buffered trades.
+
+        Finnhub covers US equities + crypto.  Live Forex prices are
+        merged from TwelveDataConnector so every emitted tick carries
+        all 15 assets.
+        """
         assets = {}
         any_data = False
 
@@ -224,7 +228,7 @@ class FinnhubConnector:
             # Compute rolling_volatility from price history
             prices_list = self._price_history[symbol]
             if len(prices_list) >= 3:
-                log_rets = np.diff(np.log(prices_list[-min(60, len(prices_list)):])) 
+                log_rets = np.diff(np.log(prices_list[-min(60, len(prices_list)):]))
                 rolling_vol = float(np.std(log_rets) * np.sqrt(252 * 390)) if len(log_rets) > 1 else 0.0
             else:
                 rolling_vol = 0.0
@@ -254,6 +258,20 @@ class FinnhubConnector:
 
         if not any_data:
             return None
+
+        # ── Merge live Forex prices from TwelveDataConnector ────────────────────
+        # Forex is not available on Finnhub free tier, so we pull the
+        # latest prices from TwelveDataConnector's in-memory cache.
+        # This is always fresh ≤ TWELVE_DATA_POLL_INTERVAL seconds old.
+        try:
+            from ingestion.twelve_data_connector import twelve_data_connector
+            fx_prices = twelve_data_connector.latest_prices
+            for fx_sym, fx_data in fx_prices.items():
+                if fx_sym not in assets:  # don't override if Finnhub somehow got it
+                    assets[fx_sym] = fx_data
+        except Exception:
+            pass  # if Twelve Data is not started, ticks still emit without FX
+        # ────────────────────────────────────────────────────────────────────────
 
         self._tick_count += 1
 

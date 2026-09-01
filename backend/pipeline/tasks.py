@@ -33,9 +33,10 @@ async def ingestion_producer():
 
     while g._pipeline_running:
         try:
-            tick_data = simulator.generate_tick()
-            tick_data = watermark.ingest("simulator", tick_data)
-            await redis_streams.publish_tick(tick_data)
+            if g._data_mode == "simulator" or simulator.crisis_mode:
+                tick_data = simulator.generate_tick()
+                tick_data = watermark.ingest("simulator", tick_data)
+                await redis_streams.publish_tick(tick_data)
             await asyncio.sleep(g._tick_rate)
         except Exception as e:
             g._system_metrics["pipeline_errors"] += 1
@@ -44,6 +45,9 @@ async def ingestion_producer():
 
 async def _finnhub_tick_handler(tick_data: dict):
     try:
+        if ENABLE_SIMULATOR and simulator.crisis_mode:
+            return  # Drop live data during crisis injection
+            
         tick_data = watermark.ingest("finnhub", tick_data)
         await redis_streams.publish_tick(tick_data)
     except Exception as e:

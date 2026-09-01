@@ -65,6 +65,7 @@ RATE_LIMIT_PER_MINUTE = _env("RATE_LIMIT_PER_MINUTE", 120, int)
 FINNHUB_API_KEY = _env("FINNHUB_API_KEY", "")
 POLYGON_API_KEY = _env("POLYGON_API_KEY", "")
 FRED_API_KEY = _env("FRED_API_KEY", "")
+ALPHAVANTAGE_API_KEY = _env("ALPHAVANTAGE_API_KEY", "") or _env("NEWSDATA_API_KEY", "")
 NEWSDATA_API_KEY = _env("NEWSDATA_API_KEY", "")
 DATA_MODE = _env("DATA_MODE", "simulator")  # "simulator" | "finnhub" | "hybrid"
 ENABLE_SIMULATOR = _env("ENABLE_SIMULATOR", "true").lower() in ("true", "1", "yes")
@@ -73,6 +74,11 @@ ENABLE_SIMULATOR = _env("ENABLE_SIMULATOR", "true").lower() in ("true", "1", "ye
 FINNHUB_RATE_LIMIT_PER_MIN = _env("FINNHUB_RATE_LIMIT_PER_MIN", 60, int)
 # Aggregation interval for Finnhub WebSocket (seconds between tick emissions)
 FINNHUB_AGGREGATION_INTERVAL = _env("FINNHUB_AGGREGATION_INTERVAL", 1.0, float)
+
+# Twelve Data REST API for live Forex (EUR/USD, GBP/USD, USD/JPY).
+# Free tier: 800 requests/day.  Default poll = 120s = 720 req/day (safe buffer).
+TWELVE_DATA_API_KEY = _env("TWELVE_DATA_API_KEY", "")
+TWELVE_DATA_POLL_INTERVAL = _env("TWELVE_DATA_POLL_INTERVAL", 120.0, float)
 
 # ── Asset Universe ──────────────────────────────────────────────────
 # 15 assets after removing bonds/rates (US10Y, US2Y, SOFR)

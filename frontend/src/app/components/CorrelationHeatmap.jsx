@@ -6,10 +6,14 @@
 
 import { useRef, useEffect, useMemo } from 'react';
 
+// Must match the alphabetical asset order in state_builder.py exactly
+// (BAC, BTCUSD, C, DIA, ETHUSD, EURUSD, GBPUSD, GS, IWM, JPM, MS, QQQ, SPY, USDJPY, XLF)
 const LABELS = [
-  'SPY', 'QQQ', 'DIA', 'IWM', 'XLF', 'JPM', 'GS', 'BAC', 'C', 'MS',
-  'EUR', 'GBP', 'JPY', 'US10', 'US2', 'SOFR', 'BTC', 'ETH'
+  'BAC', 'BTC', 'C', 'DIA', 'ETH',
+  'EUR', 'GBP', 'GS', 'IWM', 'JPM',
+  'MS', 'QQQ', 'SPY', 'JPY', 'XLF',
 ];
+
 
 function correlationToColor(value) {
   // Map [-1, 1] to color: blue → dark → red
