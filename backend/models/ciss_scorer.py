@@ -125,16 +125,25 @@ class CISSScorer:
         a predefined "calm market" reference. Values at or below the reference
         score ~0.3; values at 3x reference score ~0.7; values at 5x+ score ~0.9.
         """
+        # Adaptive calm reference: the rolling median of this segment's own
+        # recent stress. Self-calibrates to the data granularity (live ticks
+        # vs coarser daily-replay bars), so the score keeps real dynamic range
+        # instead of saturating near 1.0. Falls back to the hardcoded calm
+        # reference during warm-up (< 30 obs).
         ref = self._calm_reference.get(segment, 0.01)
-        if ref <= 0:
-            return 0.0
-        
-        # Ratio relative to calm reference
+        buf = self.segment_buffers.get(segment)
+        if buf is not None and len(buf) >= 30:
+            pos = [v for v in buf if v > 0]
+            if pos:
+                ref = float(np.median(pos))
+        ref = max(ref, 1e-9)
+
+        # Ratio relative to the (adaptive) calm reference
         ratio = current_value / ref
-        
-        # Sigmoid mapping: ratio=1 → 0.3, ratio=3 → 0.7, ratio=5 → 0.9
+
+        # Sigmoid mapping: ratio≈1 (calm) → ~0.08, ratio=2.5 → 0.5, ratio≥5 → ~0.95
         score = 1.0 / (1.0 + np.exp(-1.2 * (ratio - 2.5)))
-        
+
         return float(np.clip(score, 0, 1))
 
     @staticmethod

@@ -19,6 +19,7 @@ from utils.config import (
     ENSEMBLE_LSTM_WEIGHT,
     ENSEMBLE_CISS_WEIGHT,
     ENSEMBLE_COPULA_WEIGHT,
+    ENSEMBLE_MERTON_WEIGHT,
     ALERT_THRESHOLD_HIGH,
     ALERT_THRESHOLD_CRITICAL,
 )
@@ -47,11 +48,13 @@ class EnsembleOrchestrator:
         
         # Ensemble weights — pulled from config so .env tuning applies
         # Normalize to sum to 1.0
-        raw_total = ENSEMBLE_IF_WEIGHT + ENSEMBLE_LSTM_WEIGHT + ENSEMBLE_CISS_WEIGHT + ENSEMBLE_COPULA_WEIGHT
+        raw_total = (ENSEMBLE_IF_WEIGHT + ENSEMBLE_LSTM_WEIGHT + ENSEMBLE_CISS_WEIGHT
+                     + ENSEMBLE_COPULA_WEIGHT + ENSEMBLE_MERTON_WEIGHT)
         self.if_weight = ENSEMBLE_IF_WEIGHT / raw_total
         self.lstm_weight = ENSEMBLE_LSTM_WEIGHT / raw_total
         self.ciss_weight = ENSEMBLE_CISS_WEIGHT / raw_total
         self.copula_weight = ENSEMBLE_COPULA_WEIGHT / raw_total
+        self.merton_weight = ENSEMBLE_MERTON_WEIGHT / raw_total
 
         # EMA smoothing — reduces tick-to-tick jitter
         # Lower alpha = smoother. 0.05 works well for hybrid data (two sources
@@ -137,6 +140,15 @@ class EnsembleOrchestrator:
         except Exception:
             merton_results = []
 
+        # Systemic bank-stress score in [0,1] from the worst (min) distance-to-
+        # default across banks. Healthy DD ~3+, stressed <1. This gives the
+        # ensemble a credit-risk signal for bank-driven crises (SVB, Lehman).
+        if merton_results:
+            min_dd = min(r.get("distance_to_default", 6.0) for r in merton_results)
+            merton_score = float(np.clip(1.0 / (1.0 + np.exp(1.5 * (min_dd - 1.5))), 0.0, 1.0))
+        else:
+            merton_score = 0.0
+
         # 4b. t-Copula tail dependence — cross-segment contagion signal
         try:
             copula_snap = copula_model.update(assets)
@@ -150,7 +162,8 @@ class EnsembleOrchestrator:
             self.if_weight * if_score +
             self.lstm_weight * lstm_score +
             self.ciss_weight * ciss_score_val +
-            self.copula_weight * copula_score
+            self.copula_weight * copula_score +
+            self.merton_weight * merton_score
         )
 
         # 5b. EMA smoothing to reduce tick-to-tick jitter
@@ -158,6 +171,7 @@ class EnsembleOrchestrator:
         lstm_score = self._smooth("lstm", lstm_score)
         ciss_score_val = self._smooth("ciss", ciss_score_val)
         copula_score = self._smooth("copula", copula_score)
+        merton_score = self._smooth("merton", merton_score)
         combined_anomaly = self._smooth("combined", raw_combined)
 
         # 6. Determine alert level
@@ -220,6 +234,7 @@ class EnsembleOrchestrator:
                 "lstm_autoencoder": round(lstm_score, 6),
                 "ciss": round(ciss_score_val, 6),
                 "copula_tail": round(copula_score, 6),
+                "merton_bank": round(merton_score, 6),
                 "combined_anomaly": round(combined_anomaly, 6),
                 "severity": severity,
             },

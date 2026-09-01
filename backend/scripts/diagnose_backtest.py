@@ -21,7 +21,7 @@ from models.ensemble import ensemble                    # noqa: E402
 from backtesting.historical_crises import get_by_name   # noqa: E402
 from utils.model_persistence import get_checkpoint_manager  # noqa: E402
 
-COMPS = ["isolation_forest", "lstm_autoencoder", "ciss", "copula_tail", "combined_anomaly"]
+COMPS = ["isolation_forest", "lstm_autoencoder", "ciss", "copula_tail", "merton_bank", "combined_anomaly"]
 
 
 async def diagnose(name: str):

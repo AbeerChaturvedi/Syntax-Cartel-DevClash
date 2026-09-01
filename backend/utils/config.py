@@ -156,6 +156,13 @@ if ENSEMBLE_COPULA_WEIGHT > 0:
     ENSEMBLE_LSTM_WEIGHT = _env("ENSEMBLE_LSTM_WEIGHT", 0.35, float)
     ENSEMBLE_CISS_WEIGHT = _env("ENSEMBLE_CISS_WEIGHT", 0.20, float)
 
+# Merton bank distance-to-default as an ensemble member (credit-risk signal
+# for bank-driven crises like SVB/Lehman). Default 0: Merton's DD vol/annualization
+# is calibrated for live tick cadence and reads ~flat on daily-replay backtests,
+# so it's plumbed (and shown on the dashboard) but kept out of the fused score
+# until its estimation is made cadence-agnostic. Weights renormalize to sum 1.
+ENSEMBLE_MERTON_WEIGHT = _env("ENSEMBLE_MERTON_WEIGHT", 0.0, float)
+
 # ── v3: Alerting ───────────────────────────────────────────────────
 ALERT_SLACK_WEBHOOK = _env("ALERT_SLACK_WEBHOOK", "")
 ALERT_DISCORD_WEBHOOK = _env("ALERT_DISCORD_WEBHOOK", "")
