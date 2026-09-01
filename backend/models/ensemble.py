@@ -19,6 +19,8 @@ from utils.config import (
     ENSEMBLE_LSTM_WEIGHT,
     ENSEMBLE_CISS_WEIGHT,
     ENSEMBLE_COPULA_WEIGHT,
+    ALERT_THRESHOLD_HIGH,
+    ALERT_THRESHOLD_CRITICAL,
 )
 
 
@@ -57,12 +59,12 @@ class EnsembleOrchestrator:
         self._ema_alpha = 0.05
         self._ema: Dict[str, float] = {}
 
-        # Alert thresholds
+        # Alert thresholds — HIGH/CRITICAL sourced from .env via config
         self.ALERT_THRESHOLDS = {
-            "LOW": 0.3,
-            "MEDIUM": 0.5,
-            "HIGH": 0.7,
-            "CRITICAL": 0.85,
+            "LOW": 0.25,
+            "MEDIUM": 0.40,
+            "HIGH": ALERT_THRESHOLD_HIGH,
+            "CRITICAL": ALERT_THRESHOLD_CRITICAL,
         }
 
     async def process_tick(self, tick_data: dict) -> Optional[Dict]:

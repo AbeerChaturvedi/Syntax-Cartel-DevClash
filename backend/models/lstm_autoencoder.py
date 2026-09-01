@@ -102,6 +102,12 @@ class TemporalAnomalyDetector:
         self.model.eval()
 
         self.is_fitted = False
+        # Data-fitted per-feature normalizer (mean/std), learned on real calm
+        # data in training. When present it REPLACES the fixed _FEATURE_SCALES,
+        # bringing every feature to ~unit variance so the autoencoder actually
+        # learns to reconstruct calm markets (and errors spike on crises).
+        self._norm_mean: np.ndarray = None
+        self._norm_std: np.ndarray = None
         # Threshold: set initially high. Will be calibrated after WARMUP_TICKS real ticks.
         self.threshold = 1.0
         self._threshold_calibrated = False
@@ -114,11 +120,27 @@ class TemporalAnomalyDetector:
         # Warmup MSE collection for initial calibration
         self._warmup_mses: list = []
 
+    def fit_normalizer(self, raw_vectors: np.ndarray) -> None:
+        """Learn per-feature mean/std from real calm-market vectors."""
+        arr = np.nan_to_num(np.asarray(raw_vectors, dtype=np.float64),
+                            nan=0.0, posinf=0.0, neginf=0.0)
+        self._norm_mean = arr.mean(axis=0).astype(np.float32)
+        std = arr.std(axis=0)
+        std[std < 1e-8] = 1.0  # guard near-constant features
+        self._norm_std = std.astype(np.float32)
+
+    def _normalize(self, vec: np.ndarray) -> np.ndarray:
+        """Normalize a feature vector. Uses the fitted normalizer when available,
+        else falls back to the fixed per-feature scales (backward compatible)."""
+        if self._norm_mean is not None and self._norm_std is not None:
+            z = (vec - self._norm_mean) / self._norm_std
+            return np.clip(z, -5.0, 5.0).astype(np.float32)
+        return _scale(vec).astype(np.float32)
+
     def add_to_buffer(self, state_vector: np.ndarray):
-        """Add a state vector to the temporal buffer (with fixed scaling)."""
+        """Add a state vector to the temporal buffer (normalized)."""
         clean = np.nan_to_num(state_vector, nan=0.0, posinf=0.0, neginf=0.0)
-        scaled = _scale(clean)
-        self._buffer.append(scaled.astype(np.float32))
+        self._buffer.append(self._normalize(clean))
 
     def predict(self) -> float:
         """

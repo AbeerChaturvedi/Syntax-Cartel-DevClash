@@ -31,8 +31,14 @@ async def diagnose(name: str):
     if n == 0:
         print(f"{name}: no data"); return
 
-    # reset ensemble smoothing state so runs are independent
-    ensemble._ema = {}
+    # reset ensemble smoothing state so runs are independent; process per-tick
+    ensemble.reset()
+    ensemble.batch_size = 1
+    from features.state_builder import state_builder
+    from models.ciss_scorer import ciss_scorer as _ciss
+    from models.copula_model import copula_model as _cop
+    from models.lstm_autoencoder import temporal_detector as _lstm
+    state_builder.reset(); _ciss.reset(); _cop.reset(); _lstm.reset_runtime()
     per_date = {}  # date -> {comp: [vals], label}
 
     async def on_tick(tick):

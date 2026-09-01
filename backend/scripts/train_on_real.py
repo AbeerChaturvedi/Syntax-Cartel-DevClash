@@ -102,9 +102,10 @@ async def gather_data():
         if not vecs:
             continue
         all_vecs.extend(vecs)
-        # overlapping length-seq_len sequences WITHIN this contiguous window
+        # overlapping length-seq_len sequences of RAW vectors WITHIN this window
+        # (normalized later, once the fitted normalizer is known)
         for i in range(0, len(vecs) - seq_len + 1, 2):   # stride 2 to thin overlap
-            seqs.append(np.array([_scale(v) for v in vecs[i:i + seq_len]], dtype=np.float32))
+            seqs.append(np.stack(vecs[i:i + seq_len]).astype(np.float32))
         print(f"    {ws}: {len(vecs)} vectors, running seq total={len(seqs)}")
     return np.array(all_vecs, dtype=np.float32), seqs
 
@@ -155,12 +156,21 @@ def main():
           f"n_estimators={anomaly_detector_if.model.n_estimators}")
 
     # ── LSTM autoencoder on real sequences ────────────────────────────
+    # Fit the data-driven normalizer on real calm vectors, then normalize
+    # each sequence with it (replaces the miscalibrated fixed feature scales).
+    temporal_detector.fit_normalizer(vecs)
+    print(f"\nFitted LSTM normalizer: mean|std ranges "
+          f"[{temporal_detector._norm_mean.min():.2e},{temporal_detector._norm_mean.max():.2e}] | "
+          f"[{temporal_detector._norm_std.min():.2e},{temporal_detector._norm_std.max():.2e}]")
     if len(seqs) > MAX_LSTM_SEQUENCES:
         pick = np.random.choice(len(seqs), MAX_LSTM_SEQUENCES, replace=False)
         seqs = [seqs[i] for i in pick]
-    print(f"\nTraining LSTM autoencoder on {len(seqs)} real sequences "
+    norm_seqs = np.stack([
+        np.stack([temporal_detector._normalize(v) for v in seq]) for seq in seqs
+    ]).astype(np.float32)
+    print(f"Training LSTM autoencoder on {len(norm_seqs)} real sequences "
           f"(seq_len={temporal_detector.seq_length})...")
-    train_lstm(np.array(seqs, dtype=np.float32))
+    train_lstm(norm_seqs)
 
     # ── Persist as the runtime's warm-start checkpoint ────────────────
     print("\nSaving checkpoint (data/checkpoints/current/)...")

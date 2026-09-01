@@ -109,6 +109,10 @@ class BacktestHarness:
         from models.copula_model import copula_model
         from models.lstm_autoencoder import temporal_detector
         ensemble.reset()
+        # Process per-tick (not in batches of 10) so temporal models (LSTM
+        # seq_length, warmup) actually accumulate enough samples within a
+        # short crisis window. Live keeps its batch size for throughput.
+        ensemble.batch_size = 1
         state_builder.reset()
         ciss_scorer.reset()
         copula_model.reset()
@@ -169,7 +173,8 @@ class BacktestHarness:
 
         # False-positive rate in the pre-window period
         pre_mask = np.array([d < crisis.window_start for d in dates])
-        alerts_pre = np.sum(scores[pre_mask] > 0.7) if pre_mask.any() else 0
+        high_thr = ensemble.ALERT_THRESHOLDS["HIGH"]
+        alerts_pre = np.sum(scores[pre_mask] > high_thr) if pre_mask.any() else 0
         fpr_pre_window = float(alerts_pre / max(1, pre_mask.sum()))
 
         return {

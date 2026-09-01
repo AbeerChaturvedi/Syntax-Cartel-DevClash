@@ -135,11 +135,15 @@ class CheckpointManager:
         try:
             import torch
             from models.lstm_autoencoder import temporal_detector
+            nm = temporal_detector._norm_mean
+            ns = temporal_detector._norm_std
             torch.save({
                 "model_state_dict": temporal_detector.model.state_dict(),
                 "threshold": float(temporal_detector.threshold),
                 "threshold_calibrated": temporal_detector._threshold_calibrated,
                 "mse_history": list(temporal_detector._mse_history)[-500:],
+                "norm_mean": nm.tolist() if nm is not None else None,
+                "norm_std": ns.tolist() if ns is not None else None,
             }, tmp / "lstm_autoencoder.pt")
             manifest["components"].append({
                 "name": "lstm_autoencoder",
@@ -163,6 +167,10 @@ class CheckpointManager:
             loaded_mse = ckpt.get("mse_history", [])
             temporal_detector._mse_history = type(temporal_detector._mse_history)(loaded_mse,
                 maxlen=temporal_detector._mse_history.maxlen)
+            import numpy as _np
+            nm, ns = ckpt.get("norm_mean"), ckpt.get("norm_std")
+            temporal_detector._norm_mean = _np.array(nm, dtype=_np.float32) if nm is not None else None
+            temporal_detector._norm_std = _np.array(ns, dtype=_np.float32) if ns is not None else None
             temporal_detector.model.eval()
             temporal_detector.is_fitted = True
             return True
