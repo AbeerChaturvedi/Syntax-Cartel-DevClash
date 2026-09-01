@@ -19,6 +19,7 @@
 --
 --  Tamper detection: any row mutation breaks the chain at that row
 --  and every row after it.  Detect by re-running the chain check.
+
 CREATE TABLE IF NOT EXISTS audit_log (
     audit_id     BIGSERIAL    PRIMARY KEY,
     occurred_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),

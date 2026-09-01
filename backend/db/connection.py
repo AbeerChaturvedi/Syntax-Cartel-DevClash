@@ -141,6 +141,10 @@ async def upsert_model_lineage(
 
 async def get_or_create_time_id(conn, epoch_ms: int, timestamp_utc):
     """Get or create a time dimension entry. Uses INSERT ON CONFLICT to avoid redundant SELECT."""
+    # Ensure naive datetime for TIMESTAMP column (stubs out the "can't subtract offset-naive" error)
+    if timestamp_utc.tzinfo is not None:
+        timestamp_utc = timestamp_utc.replace(tzinfo=None)
+
     row = await conn.fetchrow("""
         INSERT INTO dim_time (epoch_ms, timestamp_utc, trading_hour, day_of_week, calendar_month, market_session)
         VALUES ($1, $2, $3, $4, $5, $6)
