@@ -29,6 +29,7 @@ services:
       - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
       - ./backend/db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
       - ./backend/db/migrations/04_audit.sql:/docker-entrypoint-initdb.d/04-audit.sql
+      - ./backend/db/migrations/05_dim_source_unique.sql:/docker-entrypoint-initdb.d/05-dim-source-unique.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U velure"]
       interval: 5s
