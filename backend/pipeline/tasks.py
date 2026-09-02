@@ -8,7 +8,7 @@ from ingestion.simulator import simulator
 from ingestion.redis_streams import redis_streams
 from ingestion.watermark import watermark
 from models.ensemble import ensemble
-from database.persistence import persist_scores
+from db.persistence import persist_scores
 import globals as g
 
 async def _periodic_checkpoint_loop():

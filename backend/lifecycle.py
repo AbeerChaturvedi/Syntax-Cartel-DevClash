@@ -10,7 +10,7 @@ from ingestion.redis_streams import redis_streams
 from models.ensemble import ensemble
 import globals as g
 
-from database.persistence import init_db
+from db.persistence import init_db
 from pipeline.tasks import data_pipeline, _periodic_checkpoint_loop, _finnhub_tick_handler
 
 def _compute_model_version_and_hash() -> tuple[str, str, dict]:
