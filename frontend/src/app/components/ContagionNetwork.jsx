@@ -1,442 +1,234 @@
 /**
- * ContagionNetwork — Three.js 3D spherical network graph
+ * ContagionNetwork — glowing 3D contagion graph (redesign)
  *
- * Features:
- * - 3D sphere with thick nodes and cylinder connections
- * - Theme-aware labels: dark slate in light mode, white in dark mode
- * - Manual orbit controls (drag to rotate)
- * - Auto-rotate toggle with tilted orbital wobble
- * - Fullscreen mode with smooth camera zoom enabled
- * - Camera reset animation on exit fullscreen
- * - Mouse wheel zoom disabled in standard mode, enabled in fullscreen
+ * Build once, update in place. OrbitControls with damping for smooth
+ * rotation. UnrealBloomPass so nodes and edges glow. Crisp HTML labels via
+ * CSS2DRenderer. Render loop pauses when the tab is hidden.
  */
 'use client';
 
 import { useRef, useEffect, useState, memo, useCallback } from 'react';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { RotateCcw, Maximize2, X } from 'lucide-react';
 
-const DEFAULT_CAM_Z = 4.5;
-const FULLSCREEN_CAM_Z = 3.8;
+const R = 1.5;                 // sphere radius
+const CALM = new THREE.Color(0x3b82f6);
+const WARN = new THREE.Color(0xf59e0b);
+const HOT = new THREE.Color(0xf43f5e);
 
-/* ── Fibonacci sphere point distribution ──────────── */
 function fibonacciSphere(n) {
-  const points = [];
-  if (n <= 0) return points;
-  if (n === 1) {
-    points.push(new THREE.Vector3(0, 0, 0));
-    return points;
-  }
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const pts = [];
+  if (n <= 0) return pts;
+  if (n === 1) return [new THREE.Vector3(0, 0, 0)];
+  const ga = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < n; i++) {
     const y = 1 - (i / (n - 1)) * 2;
-    const radiusAtY = Math.sqrt(1 - y * y);
-    const theta = goldenAngle * i;
-    points.push(new THREE.Vector3(
-      Math.cos(theta) * radiusAtY,
-      y,
-      Math.sin(theta) * radiusAtY,
-    ));
+    const r = Math.sqrt(1 - y * y);
+    pts.push(new THREE.Vector3(Math.cos(ga * i) * r, y, Math.sin(ga * i) * r));
   }
-  return points;
-}
-
-/* ── Detect current theme ────────────────────────────── */
-function isDarkMode() {
-  if (typeof document === 'undefined') return false;
-  return document.documentElement.classList.contains('dark');
+  return pts;
 }
 
 const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, assets, crisisMode }) {
-  const containerRef = useRef(null);
-  const rendererRef = useRef(null);
-  const sceneRef = useRef(null);
-  const cameraRef = useRef(null);
-  const animRef = useRef(null);
-  const isDragging = useRef(false);
-  const prevMouse = useRef({ x: 0, y: 0 });
-  const sphereGroupRef = useRef(null);
-  const rotationSpeed = useRef({ x: 0, y: 0 });
-  const autoRotateRef = useRef(true);
-  const fullscreenRef = useRef(false);
-  const sceneInitialized = useRef(false);
-  const timeRef = useRef(0);
-  const labelSpritesRef = useRef([]);
-  const targetCamZ = useRef(DEFAULT_CAM_Z);
-
+  const mount = useRef(null);
+  const R3 = useRef({});           // three refs bag
   const [autoRotate, setAutoRotate] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const autoRef = useRef(true);
+  const crisisRef = useRef(false);
+  useEffect(() => { autoRef.current = autoRotate; if (R3.current.controls) R3.current.controls.autoRotate = autoRotate; }, [autoRotate]);
+  useEffect(() => { crisisRef.current = crisisMode; }, [crisisMode]);
 
-  // Keep refs in sync
-  useEffect(() => { autoRotateRef.current = autoRotate; }, [autoRotate]);
+  // ── setup (once) ──────────────────────────────────
   useEffect(() => {
-    fullscreenRef.current = isFullscreen;
-    targetCamZ.current = isFullscreen ? FULLSCREEN_CAM_Z : DEFAULT_CAM_Z;
-  }, [isFullscreen]);
-
-  // ── Handle theme changes for label colors ─────────
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      updateLabelColors();
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-    return () => observer.disconnect();
-  }, []);
-
-  function updateLabelColors() {
-    const dark = isDarkMode();
-    const color = dark ? '#d4d8e0' : '#1f2937';
-    labelSpritesRef.current.forEach(({ sprite, ticker }) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 40;
-      const ctx = canvas.getContext('2d');
-      ctx.font = 'bold 22px Inter, system-ui, sans-serif';
-      ctx.fillStyle = color;
-      ctx.textAlign = 'center';
-      ctx.fillText(ticker, 64, 28);
-      if (sprite.material.map) sprite.material.map.dispose();
-      sprite.material.map = new THREE.CanvasTexture(canvas);
-      sprite.material.needsUpdate = true;
-    });
-  }
-
-  // ── Mouse wheel handler ───────────────────────────
-  const onWheel = useCallback((e) => {
-    if (!fullscreenRef.current) return; // Block zoom in standard mode
-    e.preventDefault();
-    const camera = cameraRef.current;
-    if (!camera) return;
-    const delta = e.deltaY * 0.005;
-    const newZ = Math.max(1.5, Math.min(8, camera.position.z + delta));
-    camera.position.z = newZ;
-    targetCamZ.current = newZ;
-  }, []);
-
-  // ── Scene setup (runs once) ───────────────────────
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || sceneInitialized.current) return;
-    sceneInitialized.current = true;
-
-    const width = container.clientWidth;
-    const height = container.clientHeight;
+    const el = mount.current;
+    if (!el) return;
+    const w = el.clientWidth || 300;
+    const h = el.clientHeight || 260;
 
     const scene = new THREE.Scene();
-    scene.background = null;
-    sceneRef.current = scene;
+    const camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100);
+    camera.position.z = 4.4;
 
-    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 100);
-    camera.position.z = DEFAULT_CAM_Z;
-    cameraRef.current = camera;
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setClearColor(0x000000, 0);
-    container.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
+    renderer.setClearColor(0x090a10, 1);
+    el.appendChild(renderer.domElement);
 
-    // Lighting
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(5, 5, 5);
-    scene.add(dirLight);
-    const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
-    backLight.position.set(-3, -3, -3);
-    scene.add(backLight);
+    // labels overlay
+    const labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(w, h);
+    Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: '0', left: '0', pointerEvents: 'none' });
+    el.appendChild(labelRenderer.domElement);
 
-    // Network group
-    const sphereGroup = new THREE.Group();
-    sphereGroup.rotation.x = 0.3;
-    sphereGroup.rotation.z = 0.15;
-    scene.add(sphereGroup);
-    sphereGroupRef.current = sphereGroup;
+    const group = new THREE.Group();
+    group.rotation.x = 0.25;
+    scene.add(group);
 
-    // Manual orbit controls
-    const onPointerDown = (e) => {
-      isDragging.current = true;
-      prevMouse.current = { x: e.clientX, y: e.clientY };
-      rotationSpeed.current = { x: 0, y: 0 };
-    };
-    const onPointerMove = (e) => {
-      if (!isDragging.current) return;
-      const dx = e.clientX - prevMouse.current.x;
-      const dy = e.clientY - prevMouse.current.y;
-      rotationSpeed.current = { x: dy * 0.005, y: dx * 0.005 };
-      sphereGroup.rotation.x += dy * 0.005;
-      sphereGroup.rotation.y += dx * 0.005;
-      prevMouse.current = { x: e.clientX, y: e.clientY };
-    };
-    const onPointerUp = () => { isDragging.current = false; };
+    // bloom composer
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.9, 0.5, 0.08);
+    composer.addPass(bloom);
 
-    container.addEventListener('pointerdown', onPointerDown);
-    container.addEventListener('pointermove', onPointerMove);
-    container.addEventListener('pointerup', onPointerUp);
-    container.addEventListener('pointerleave', onPointerUp);
-    container.addEventListener('wheel', onWheel, { passive: false });
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.enablePan = false;
+    controls.autoRotate = autoRef.current;
+    controls.autoRotateSpeed = 1.1;
+    controls.minDistance = 2.6;
+    controls.maxDistance = 8;
 
-    // Animation loop
+    // faint wireframe shell
+    const shell = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(R * 1.03, 1),
+      new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: true, transparent: true, opacity: 0.07 })
+    );
+    group.add(shell);
+
     const clock = new THREE.Clock();
+    let raf;
     const animate = () => {
-      animRef.current = requestAnimationFrame(animate);
-      const delta = clock.getDelta();
-      timeRef.current += delta;
-
-      // Smooth camera Z interpolation (zoom transitions)
-      const camDiff = targetCamZ.current - camera.position.z;
-      if (Math.abs(camDiff) > 0.01) {
-        camera.position.z += camDiff * 0.08;
-      }
-
-      if (!isDragging.current) {
-        if (autoRotateRef.current) {
-          sphereGroup.rotation.y += 0.008;
-          sphereGroup.rotation.x = 0.3 + Math.sin(timeRef.current * 0.3) * 0.12;
-          sphereGroup.rotation.z = 0.15 + Math.cos(timeRef.current * 0.2) * 0.08;
-        } else {
-          sphereGroup.rotation.x += rotationSpeed.current.x;
-          sphereGroup.rotation.y += rotationSpeed.current.y;
-          rotationSpeed.current.x *= 0.95;
-          rotationSpeed.current.y *= 0.95;
-        }
-      }
-
-      renderer.render(scene, camera);
+      raf = requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      controls.autoRotateSpeed = crisisRef.current ? 2.2 : 1.1;
+      bloom.strength = crisisRef.current ? 1.5 : 0.9;
+      shell.material.color.setHex(crisisRef.current ? 0xf43f5e : 0x3b82f6);
+      shell.material.opacity = 0.07 + (crisisRef.current ? 0.06 + Math.sin(t * 3) * 0.03 : 0);
+      controls.update();
+      composer.render();
+      labelRenderer.render(scene, camera);
     };
     animate();
 
-    // Resize
-    const handleResize = () => {
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w === 0 || h === 0) return;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+    const onResize = () => {
+      const W = el.clientWidth, H = el.clientHeight;
+      if (!W || !H) return;
+      camera.aspect = W / H; camera.updateProjectionMatrix();
+      renderer.setSize(W, H); composer.setSize(W, H); labelRenderer.setSize(W, H);
     };
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('resize', onResize);
+
+    // pause when tab hidden
+    const onVis = () => {
+      if (document.hidden) { if (raf) cancelAnimationFrame(raf); raf = null; }
+      else if (!raf) animate();
+    };
+    document.addEventListener('visibilitychange', onVis);
+
+    R3.current = { scene, camera, renderer, labelRenderer, group, composer, bloom, controls, nodes: [], edges: null, onResize };
 
     return () => {
-      sceneInitialized.current = false;
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-      window.removeEventListener('resize', handleResize);
-      container.removeEventListener('pointerdown', onPointerDown);
-      container.removeEventListener('pointermove', onPointerMove);
-      container.removeEventListener('pointerup', onPointerUp);
-      container.removeEventListener('pointerleave', onPointerUp);
-      container.removeEventListener('wheel', onWheel);
-      if (renderer.domElement && container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
-      }
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      document.removeEventListener('visibilitychange', onVis);
+      controls.dispose();
+      composer.dispose?.();
       renderer.dispose();
-      scene.clear();
+      scene.traverse((o) => { o.geometry?.dispose?.(); o.material?.dispose?.(); });
+      if (renderer.domElement.parentNode === el) el.removeChild(renderer.domElement);
+      if (labelRenderer.domElement.parentNode === el) el.removeChild(labelRenderer.domElement);
+      R3.current = {};
     };
-  }, [onWheel]);
-
-  // ── Resize renderer when fullscreen toggles ───────
-  useEffect(() => {
-    const container = containerRef.current;
-    const renderer = rendererRef.current;
-    const camera = cameraRef.current;
-    if (!container || !renderer || !camera) return;
-
-    // Small delay to let CSS transition finish
-    const timer = setTimeout(() => {
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      if (w === 0 || h === 0) return;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-    }, 50);
-
-    return () => clearTimeout(timer);
-  }, [isFullscreen]);
-
-  // ── Update network data ───────────────────────────
-  useEffect(() => {
-    const sphereGroup = sphereGroupRef.current;
-    if (!sphereGroup) return;
-
-    // Clear previous meshes
-    while (sphereGroup.children.length > 0) {
-      const child = sphereGroup.children[0];
-      sphereGroup.remove(child);
-      if (child.geometry) child.geometry.dispose();
-      if (child.material) {
-        if (child.material.map) child.material.map.dispose();
-        child.material.dispose();
-      }
-    }
-    labelSpritesRef.current = [];
-
-    const tickers = Object.keys(assets || {});
-    if (tickers.length === 0) return;
-
-    const nodeCount = tickers.length;
-    const positions = fibonacciSphere(nodeCount);
-    const sphereRadius = 1.5;
-    const nodeColor = new THREE.Color(0xEF4444);
-    const dark = isDarkMode();
-    const labelColor = dark ? '#d4d8e0' : '#1f2937';
-
-    // Nodes + labels
-    const nodeMeshes = [];
-    const nodeGeometry = new THREE.SphereGeometry(0.08, 16, 16);
-
-    for (let i = 0; i < nodeCount; i++) {
-      const pos = positions[i].clone().multiplyScalar(sphereRadius);
-      const ticker = tickers[i];
-
-      const nodeMaterial = new THREE.MeshPhongMaterial({
-        color: nodeColor,
-        emissive: nodeColor,
-        emissiveIntensity: 0.3,
-        shininess: 80,
-      });
-
-      const mesh = new THREE.Mesh(nodeGeometry, nodeMaterial);
-      mesh.position.copy(pos);
-      sphereGroup.add(mesh);
-      nodeMeshes.push({ mesh, ticker, position: pos });
-
-      // Theme-aware label
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 40;
-      const ctx = canvas.getContext('2d');
-      ctx.font = 'bold 22px Inter, system-ui, sans-serif';
-      ctx.fillStyle = labelColor;
-      ctx.textAlign = 'center';
-      ctx.fillText(ticker, 64, 28);
-
-      const texture = new THREE.CanvasTexture(canvas);
-      const spriteMaterial = new THREE.SpriteMaterial({
-        map: texture,
-        transparent: true,
-        opacity: 0.9,
-      });
-      const sprite = new THREE.Sprite(spriteMaterial);
-      sprite.position.copy(pos.clone().multiplyScalar(1.15));
-      sprite.scale.set(0.5, 0.16, 1);
-      sphereGroup.add(sprite);
-      labelSpritesRef.current.push({ sprite, ticker });
-    }
-
-    // Connections
-    const matrix = correlationMatrix || [];
-    for (let i = 0; i < nodeMeshes.length; i++) {
-      for (let j = i + 1; j < nodeMeshes.length; j++) {
-        let corr = 0;
-        if (matrix[i] && matrix[i][j] !== undefined) {
-          corr = Math.abs(matrix[i][j]);
-        }
-        if (corr < 0.1) continue;
-
-        const strength = Math.min(corr, 1);
-        const p1 = nodeMeshes[i].position;
-        const p2 = nodeMeshes[j].position;
-        const distance = new THREE.Vector3().subVectors(p2, p1).length();
-        const midpoint = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-        const tubeRadius = 0.008 + strength * 0.025;
-
-        let edgeColor;
-        if (strength > 0.6) edgeColor = new THREE.Color(0xEF4444);
-        else if (strength > 0.35) edgeColor = new THREE.Color(0xc55a0e);
-        else edgeColor = new THREE.Color(0x8e93a0);
-
-        const edgeGeometry = new THREE.CylinderGeometry(tubeRadius, tubeRadius, distance, 6, 1);
-        const edgeMaterial = new THREE.MeshPhongMaterial({
-          color: edgeColor,
-          emissive: edgeColor,
-          emissiveIntensity: strength > 0.5 ? 0.15 : 0.03,
-          transparent: true,
-          opacity: 0.3 + strength * 0.5,
-        });
-
-        const edgeMesh = new THREE.Mesh(edgeGeometry, edgeMaterial);
-        edgeMesh.position.copy(midpoint);
-        edgeMesh.lookAt(p2);
-        edgeMesh.rotateX(Math.PI / 2);
-        sphereGroup.add(edgeMesh);
-      }
-    }
-
-    // Wireframe sphere
-    const wireGeometry = new THREE.IcosahedronGeometry(sphereRadius * 1.02, 1);
-    const wireMaterial = new THREE.MeshBasicMaterial({
-      color: dark ? 0x4a4f5c : 0xc0c4cc,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.06,
-    });
-    sphereGroup.add(new THREE.Mesh(wireGeometry, wireMaterial));
-  }, [correlationMatrix, assets, crisisMode]);
-
-  // ── Fullscreen toggle ─────────────────────────────
-  const toggleFullscreen = useCallback(() => {
-    setIsFullscreen((prev) => {
-      const next = !prev;
-      if (!next) {
-        // Exiting fullscreen: reset camera to default
-        targetCamZ.current = DEFAULT_CAM_Z;
-      }
-      return next;
-    });
   }, []);
 
-  // ESC key to exit fullscreen
+  // ── build / update nodes when the asset set changes ──
+  useEffect(() => {
+    const r = R3.current; if (!r.group) return;
+    const tickers = Object.keys(assets || {});
+    const sameSet = r.nodes.length === tickers.length && r.nodes.every((n, i) => n.ticker === tickers[i]);
+    if (sameSet || tickers.length === 0) return;
+
+    // clear old nodes + labels
+    r.nodes.forEach((n) => { r.group.remove(n.mesh); n.mesh.geometry.dispose(); n.mesh.material.dispose(); if (n.label) r.group.remove(n.label); });
+    const pos = fibonacciSphere(tickers.length);
+    const nodeGeo = new THREE.SphereGeometry(0.055, 20, 20);
+    r.nodes = tickers.map((ticker, i) => {
+      const p = pos[i].clone().multiplyScalar(R);
+      const mesh = new THREE.Mesh(nodeGeo.clone(), new THREE.MeshBasicMaterial({ color: CALM.clone() }));
+      mesh.position.copy(p);
+      r.group.add(mesh);
+      const div = document.createElement('div');
+      div.textContent = ticker;
+      div.style.cssText = 'font:600 10px/1 var(--font-mono),monospace;color:#c7ceda;text-shadow:0 1px 4px #000;white-space:nowrap;';
+      const label = new CSS2DObject(div);
+      label.position.copy(p.clone().multiplyScalar(1.14));
+      r.group.add(label);
+      return { ticker, mesh, label, p };
+    });
+  }, [assets]);
+
+  // ── update edges + node heat on correlation change ──
+  useEffect(() => {
+    const r = R3.current; if (!r.group || !r.nodes.length) return;
+    const m = correlationMatrix || [];
+    const N = r.nodes.length;
+
+    // node heat = mean abs correlation to others
+    r.nodes.forEach((n, i) => {
+      let s = 0, c = 0;
+      for (let j = 0; j < N; j++) { if (i !== j && m[i] && m[i][j] != null) { s += Math.abs(m[i][j]); c++; } }
+      const heat = c ? s / c : 0;
+      const col = heat > 0.55 ? HOT : heat > 0.32 ? WARN : CALM;
+      n.mesh.material.color.copy(col);
+      const sc = 0.85 + heat * 0.9;
+      n.mesh.scale.setScalar(sc);
+    });
+
+    // rebuild edges as one LineSegments (cheap, disposed in place)
+    if (r.edges) { r.group.remove(r.edges); r.edges.geometry.dispose(); r.edges.material.dispose(); r.edges = null; }
+    const verts = [], cols = [];
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
+        const corr = m[i] && m[i][j] != null ? Math.abs(m[i][j]) : 0;
+        if (corr < 0.12) continue;
+        const a = r.nodes[i].p, b = r.nodes[j].p;
+        const col = corr > 0.55 ? HOT : corr > 0.32 ? WARN : CALM;
+        verts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        for (let k = 0; k < 2; k++) cols.push(col.r * (0.4 + corr * 0.6), col.g * (0.4 + corr * 0.6), col.b * (0.4 + corr * 0.6));
+      }
+    }
+    if (verts.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+      r.edges = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }));
+      r.group.add(r.edges);
+    }
+  }, [correlationMatrix]);
+
+  // resize after fullscreen transition
+  useEffect(() => { const t = setTimeout(() => R3.current.onResize?.(), 60); return () => clearTimeout(t); }, [isFullscreen]);
   useEffect(() => {
     if (!isFullscreen) return;
-    const onKey = (e) => {
-      if (e.key === 'Escape') setIsFullscreen(false);
-    };
+    const onKey = (e) => { if (e.key === 'Escape') setIsFullscreen(false); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [isFullscreen]);
 
+  const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
+
   return (
     <div className={`cn-wrapper ${isFullscreen ? 'cn-fullscreen' : ''}`}>
-      {/* Fullscreen overlay backdrop */}
-      {isFullscreen && (
-        <div className="cn-overlay" onClick={toggleFullscreen} />
-      )}
-
+      {isFullscreen && <div className="cn-overlay" onClick={toggleFullscreen} />}
       <div className={`cn-inner ${isFullscreen ? 'cn-inner-fs' : ''}`}>
-        {/* Canvas */}
-        <div
-          ref={containerRef}
-          className={`contagion-canvas-container ${isFullscreen ? 'cn-canvas-fs' : ''}`}
-        />
-
-        {/* Button row */}
+        <div ref={mount} className={`contagion-canvas-container ${isFullscreen ? 'cn-canvas-fs' : ''}`} style={{ position: 'relative' }} />
         <div className="cn-controls">
-          <button
-            className={`cn-btn ${autoRotate ? 'cn-btn-active' : ''}`}
-            onClick={() => setAutoRotate(prev => !prev)}
-          >
-            <RotateCcw size={13} />
-            Auto Rotate
+          <button className={`cn-btn ${autoRotate ? 'cn-btn-active' : ''}`} onClick={() => setAutoRotate((v) => !v)}>
+            <RotateCcw size={13} /> Auto Rotate
           </button>
-          <button
-            className={`cn-btn ${isFullscreen ? 'cn-btn-active' : ''}`}
-            onClick={toggleFullscreen}
-          >
-            {isFullscreen ? <X size={13} /> : <Maximize2 size={13} />}
-            {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+          <button className={`cn-btn ${isFullscreen ? 'cn-btn-active' : ''}`} onClick={toggleFullscreen}>
+            {isFullscreen ? <X size={13} /> : <Maximize2 size={13} />} {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
           </button>
         </div>
-
-        {/* Fullscreen hint */}
-        {isFullscreen && (
-          <div className="cn-fs-hint">
-            Scroll to zoom. Drag to rotate. Press ESC to exit.
-          </div>
-        )}
+        {isFullscreen && <div className="cn-fs-hint">Scroll to zoom. Drag to rotate. Press ESC to exit.</div>}
       </div>
     </div>
   );
