@@ -87,44 +87,28 @@ Stop everything with `docker compose down`.
 
 ## Run it locally for development
 
-Run Redis and PostgreSQL in containers, and run the backend and frontend on
-your machine for fast reloads.
+The fastest way to run everything locally with hot reload, from **one
+terminal**. This starts Redis and PostgreSQL in Docker and runs the FastAPI
+backend and the Next.js frontend together, with live reload on both.
 
-**1. Start the data services:**
-
-```bash
-docker compose up -d redis postgres
-```
-
-**2. Start the backend** (from the repository root):
+**Start:**
 
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000
+./dev.sh
 ```
 
-The backend reads `.env` from the repository root automatically. If uvloop is
-not installed on your platform, add `--loop asyncio` to the uvicorn command.
+Then open **http://localhost:3000**. The first run automatically creates the
+backend virtualenv, installs backend and frontend dependencies, and writes
+`frontend/.env.local`, so there is nothing else to set up.
 
-**3. Start the frontend** in a second terminal:
+**Stop:**
+
+Press **Ctrl+C** in the same terminal to stop the backend and frontend. For a
+full stop that also shuts down the Docker services:
 
 ```bash
-cd frontend
-npm install
-npm run dev
+./stop.sh
 ```
-
-Create `frontend/.env.local` so the browser knows where the backend is:
-
-```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/dashboard
-```
-
-The dashboard is now live at http://localhost:3000.
 
 > **Port note:** if you already run a local PostgreSQL on port 5432, it will
 > shadow the Docker one. Publish the container on another port and set
@@ -183,7 +167,9 @@ Syntax-Cartel-DevClash/
 ├── frontend/
 │   └── src/app/                Next.js dashboard, components and styles
 ├── deploy/                     Deployment assets
-├── docker-compose.yml          Local stack (redis, postgres, backend, frontend)
+├── dev.sh                      Start everything locally with one command
+├── stop.sh                     Stop everything (backend, frontend, Docker)
+├── docker-compose.yml          Full stack (redis, postgres, backend, frontend)
 └── docs (see below)
 ```
 
