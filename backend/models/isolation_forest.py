@@ -87,7 +87,9 @@ class AnomalyDetectorIF:
     def get_feature_importance(self, state_vector: np.ndarray, feature_names: list = None) -> dict:
         """
         Approximate feature importance using vectorized perturbation analysis.
-        Returns dict of feature_name -> contribution_score (top 10).
+        Returns dict of feature_name -> contribution_score for ALL features
+        (caller does sorting/truncation).  Passing ``feature_names`` lets the
+        UI show "BAC Return" instead of "feature_0".
         """
         if not self.is_fitted:
             self._auto_train()
@@ -98,8 +100,7 @@ class AnomalyDetectorIF:
         n_features = state_vector.shape[1]
         base_score = self.predict(state_vector[0])
 
-        # Build all perturbations at once (N × features matrix)
-        # instead of calling predict() N times
+        # Vectorised perturbation: zero out one feature at a time
         perturbed_batch = np.tile(state_vector, (n_features, 1))
         for i in range(n_features):
             perturbed_batch[i, i] = 0.0
@@ -107,14 +108,19 @@ class AnomalyDetectorIF:
         batch_scores = self.predict_batch(perturbed_batch)
         diffs = np.abs(base_score - batch_scores)
 
-        # Build result dict — top 10 only
-        pairs = []
-        for i in range(n_features):
-            name = feature_names[i] if feature_names and i < len(feature_names) else f"feature_{i}"
-            pairs.append((name, round(float(diffs[i]), 6)))
-
-        pairs.sort(key=lambda x: x[1], reverse=True)
-        return dict(pairs[:10])
+        # Return ALL features, not top-10 — the UI needs every ticker visible
+        # so BAC Return / Volatility / etc. don't disappear when other assets
+        # dominate the score.
+        pairs = [
+            (
+                feature_names[i]
+                if feature_names and i < len(feature_names)
+                else f"feature_{i}",
+                round(float(diffs[i]), 6),
+            )
+            for i in range(n_features)
+        ]
+        return dict(pairs)
 
     def _auto_train(self):
         """Generate synthetic normal data and train.

@@ -54,6 +54,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         pipeline_log.warning(f"checkpoint load failed: {e}")
 
+    # Seed synthetic historical data so backtesting/replay works
+    # out of the box without API keys.  Idempotent — skips if cache
+    # is non-empty.
+    try:
+        from ingestion.historical_loader import ensure_historical_data
+        n = ensure_historical_data()
+        if n > 0:
+            pipeline_log.info(f"historical data seeded ({n} bars)")
+    except Exception as e:
+        pipeline_log.warning(f"historical data seed failed: {e}")
+
     # v4: stamp the active model version + checkpoint hash, register it
     g._active_model_version, g._active_checkpoint_hash, _components = _compute_model_version_and_hash()
     pipeline_log.info(

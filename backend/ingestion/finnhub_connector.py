@@ -15,6 +15,7 @@ Usage:
 import asyncio
 import json
 import time
+import urllib.request
 import numpy as np
 from collections import defaultdict
 from typing import Optional, Callable, Awaitable
@@ -93,6 +94,9 @@ class FinnhubConnector:
         self._on_tick = on_tick
         self._running = True
         asyncio.create_task(self._connection_loop())
+        # Seed initial prices via REST so the heartbeat path has real data
+        # even when no live trades flow (e.g. market is closed).
+        asyncio.create_task(self._seed_initial_quotes())
         log.info("Finnhub connector started", extra={"component": "finnhub"})
         return True
 
@@ -103,6 +107,57 @@ class FinnhubConnector:
             await self._ws.close()
             self._ws = None
         log.info("Finnhub connector stopped")
+
+    async def _seed_initial_quotes(self):
+        """REST /quote snapshot for every subscribed symbol. Populates
+        _price_history with a small synthetic walk backwards in time so
+        rolling volatility has a non-zero baseline before the first live
+        trade arrives."""
+        if not self.api_key or self.api_key.startswith("your_"):
+            return
+        # Run in executor (urllib is sync); small delay so the WS has
+        # time to connect first.
+        await asyncio.sleep(2)
+        loop = asyncio.get_running_loop()
+        import numpy as np
+        for sym in SUBSCRIBE_SYMBOLS:
+            try:
+                data = await loop.run_in_executor(
+                    None, self._http_get_quote, sym
+                )
+                price = float(data.get("c", 0)) if data else 0
+                if price > 0:
+                    # Seed a 30-tick walk ending at the real current price,
+                    # with realistic per-tick variance. This gives the
+                    # state builder rolling volatility and pct_change to
+                    # work with before the first live trade.
+                    rng = np.random.default_rng(hash(sym) & 0xFFFFFFFF)
+                    asset_class = "CRYPTO" if sym.startswith("BINANCE:") else "EQUITY"
+                    base_vol = 0.005 if asset_class == "CRYPTO" else 0.002
+                    history = [price]
+                    for _ in range(29):
+                        ret = rng.normal(0, base_vol)
+                        history.append(history[-1] * (1 + ret))
+                    # Replace the existing history with our seeded walk
+                    self._price_history[sym] = list(reversed(history))
+                    log.debug(
+                        f"seed quote {sym} = {price:.4f} (walk of {len(history)} pts)",
+                        extra={"component": "finnhub"},
+                    )
+            except Exception as e:
+                log.debug(
+                    f"seed quote failed for {sym}: {e}",
+                    extra={"component": "finnhub"},
+                )
+
+    def _http_get_quote(self, symbol: str) -> dict:
+        """Synchronous REST /quote call. Returns parsed JSON."""
+        url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={self.api_key}"
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "ProjectVelure/3.0", "Accept": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read().decode("utf-8"))
 
     async def _connection_loop(self):
         """Reconnection loop with exponential backoff."""

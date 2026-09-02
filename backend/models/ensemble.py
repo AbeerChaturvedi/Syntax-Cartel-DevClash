@@ -114,6 +114,13 @@ class EnsembleOrchestrator:
         except Exception:
             if_score = 0.0
 
+        # 1b. Cross-asset correlation matrix from real price history.
+        # Used by ContagionNetwork for edges and CorrelationHeatmap for cells.
+        try:
+            corr_matrix, avg_corr = state_builder.compute_correlation_matrix()
+        except Exception:
+            corr_matrix, avg_corr = [], 0.0
+
         # 2. LSTM Autoencoder — temporal anomaly detection
         try:
             temporal_detector.add_to_buffer(state_vector)
@@ -192,7 +199,15 @@ class EnsembleOrchestrator:
 
         # 8. Feature importance for explainability
         try:
-            feature_importance = anomaly_detector_if.get_feature_importance(state_vector)
+            from features.state_builder import TRACKED_ASSETS, FEATURE_NAMES
+            feature_names = [
+                f"{ticker} {fname}"
+                for ticker in TRACKED_ASSETS
+                for fname in FEATURE_NAMES
+            ]
+            feature_importance = anomaly_detector_if.get_feature_importance(
+                state_vector, feature_names=feature_names,
+            )
         except Exception:
             feature_importance = {}
 
@@ -237,9 +252,10 @@ class EnsembleOrchestrator:
                 for ticker, data in assets.items()
             },
 
-            # Cross-asset correlation
-            "avg_correlation": latest_tick.get("avg_correlation", 0),
-            "correlation_matrix": latest_tick.get("correlation_matrix", []),
+            # Cross-asset correlation (computed from real price history,
+            # not from the simulator's static correlation matrix)
+            "avg_correlation": avg_corr,
+            "correlation_matrix": corr_matrix,
 
             # Merton results
             "merton": merton_results,

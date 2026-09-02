@@ -230,7 +230,3 @@ def _auc(fpr: np.ndarray, tpr: np.ndarray) -> float:
 
 # Singleton
 backtest_harness = BacktestHarness()
-
-
-# Singleton
-backtest_harness = BacktestHarness()

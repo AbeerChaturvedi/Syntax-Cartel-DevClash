@@ -310,11 +310,32 @@ class HistoricalDataLoader:
         return results
 
     def _save_to_cache(self, ticker: str, bars: List[dict]):
-        """Save fetched data to local JSON file."""
-        path = os.path.join(HISTORICAL_DATA_DIR, f"{ticker}_daily.json")
-        with open(path, "w") as f:
+        """Save fetched data to local JSON file (canonical) and a CSV sibling
+        that the historical replay engine can read directly."""
+        # JSON cache (canonical, full OHLCV)
+        json_path = os.path.join(HISTORICAL_DATA_DIR, f"{ticker}_daily.json")
+        with open(json_path, "w") as f:
             json.dump(bars, f, indent=2)
-        log.info(f"Saved {len(bars)} bars to {path}")
+        log.info(f"Saved {len(bars)} bars to {json_path}")
+
+        # CSV sibling for the replay engine (date,close columns only)
+        csv_path = os.path.join(HISTORICAL_DATA_DIR, f"{ticker}.csv")
+        try:
+            import csv
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["date", "open", "high", "low", "close", "volume"])
+                for bar in bars:
+                    writer.writerow([
+                        bar.get("date", ""),
+                        bar.get("open", ""),
+                        bar.get("high", ""),
+                        bar.get("low", ""),
+                        bar.get("close", ""),
+                        bar.get("volume", ""),
+                    ])
+        except Exception as e:
+            log.warning(f"CSV sibling write failed for {ticker}: {e}")
 
     def load_from_cache(self, ticker: str) -> List[dict]:
         """Load previously fetched data from cache."""
@@ -341,6 +362,129 @@ class HistoricalDataLoader:
             "tickers": cached,
         }
 
+    def seed_synthetic_data(self) -> int:
+        """Generate a small synthetic OHLCV dataset so backtesting/replay
+        works out of the box without API keys.  Real data fetched via
+        ``backfill()`` will overwrite these files when available.
+
+        Covers 2008 Lehman, 2020 COVID, and 2023 SVB crisis windows
+        plus a normal baseline period.
+        """
+        os.makedirs(HISTORICAL_DATA_DIR, exist_ok=True)
+
+        # Anchor prices (rough 2020-ish levels)
+        anchors = {
+            "SPY": 280, "QQQ": 220, "DIA": 250, "IWM": 145, "XLF": 28,
+            "JPM": 100, "GS": 200, "BAC": 28, "C": 60, "MS": 50,
+            "TLT": 150, "GLD": 170, "VIX": 18,
+            "EURUSD": 1.10, "GBPUSD": 1.30, "USDJPY": 110.0,
+            "BTCUSD": 10000, "ETHUSD": 200,
+        }
+
+        # Crisis windows: (label, start, end, vol_mult, drift, jump)
+        # jump applied on first day of the window
+        windows = [
+            ("normal_baseline", "2019-01-02", "2020-02-19", 0.8, 0.0003, 0.0),
+            ("covid_crash",      "2020-01-17", "2020-04-30", 3.5, -0.0010, -0.10),
+            ("svb_stress",       "2023-02-01", "2023-04-30", 2.0, -0.0005, -0.04),
+        ]
+
+        rng = np.random.default_rng(42)
+        total_saved = 0
+
+        for ticker, base_price in anchors.items():
+            for label, start, end, vol_mult, drift, jump in windows:
+                dates = _business_days(start, end)
+                if not dates:
+                    continue
+                n = len(dates)
+                # Random walk with crisis-specific drift + volatility
+                daily_returns = rng.normal(drift, 0.012 * vol_mult, n)
+                daily_returns[0] += jump
+                # Force a few extra spike days in the middle of crisis windows
+                if label != "normal_baseline":
+                    spike_idx = rng.choice(n, size=max(1, n // 30), replace=False)
+                    daily_returns[spike_idx] += rng.normal(-0.03 * vol_mult, 0.02 * vol_mult, len(spike_idx))
+
+                closes = [base_price]
+                for r in daily_returns[1:]:
+                    closes.append(closes[-1] * (1 + r))
+                closes = np.array(closes)
+
+                # Synthesize OHLC from close + intraday noise
+                intraday = np.abs(rng.normal(0, 0.008 * vol_mult, n))
+                opens = closes * (1 + rng.normal(0, 0.003, n))
+                highs = np.maximum(opens, closes) * (1 + intraday)
+                lows = np.minimum(opens, closes) * (1 - intraday)
+                volumes = rng.integers(1_000_000, 50_000_000, n).tolist()
+
+                bars = [
+                    {
+                        "date": d,
+                        "open": round(float(o), 4),
+                        "high": round(float(h), 4),
+                        "low": round(float(l), 4),
+                        "close": round(float(c), 4),
+                        "volume": int(v),
+                    }
+                    for d, o, h, l, c, v in zip(dates, opens, highs, lows, closes, volumes)
+                ]
+                # Tag the file name with the window so multiple windows coexist
+                tagged = f"{ticker}_{label}"
+                json_path = os.path.join(HISTORICAL_DATA_DIR, f"{tagged}_daily.json")
+                with open(json_path, "w") as f:
+                    json.dump(bars, f, indent=2)
+
+                # CSV sibling for replay engine (uses canonical ticker name
+                # so HistoricalReplay.load_window finds it directly)
+                csv_path = os.path.join(HISTORICAL_DATA_DIR, f"{ticker}.csv")
+                import csv as _csv
+                with open(csv_path, "w", newline="") as f:
+                    writer = _csv.writer(f)
+                    writer.writerow(["date", "open", "high", "low", "close", "volume"])
+                    for bar in bars:
+                        writer.writerow([bar["date"], bar["open"], bar["high"], bar["low"], bar["close"], bar["volume"]])
+
+                total_saved += len(bars)
+
+        log.info(f"Seeded {total_saved} synthetic historical bars across all tickers")
+        return total_saved
+
+
+def _business_days(start: str, end: str) -> List[str]:
+    """Return business-day ISO date strings between start and end (inclusive)."""
+    s = datetime.strptime(start, "%Y-%m-%d")
+    e = datetime.strptime(end, "%Y-%m-%d")
+    out = []
+    d = s
+    while d <= e:
+        if d.weekday() < 5:
+            out.append(d.strftime("%Y-%m-%d"))
+        d += timedelta(days=1)
+    return out
+
 
 # Singleton
 historical_loader = HistoricalDataLoader()
+
+
+def ensure_historical_data() -> int:
+    """Idempotently seed synthetic historical data if cache is empty.
+    Safe to call from app startup."""
+    if not os.path.isdir(HISTORICAL_DATA_DIR):
+        try:
+            os.makedirs(HISTORICAL_DATA_DIR, exist_ok=True)
+        except Exception:
+            return 0
+    # Any .csv present means cache is non-empty
+    try:
+        for _f in os.listdir(HISTORICAL_DATA_DIR):
+            if _f.endswith(".csv"):
+                return 0
+    except Exception:
+        pass
+    try:
+        return historical_loader.seed_synthetic_data()
+    except Exception as e:
+        log.warning(f"ensure_historical_data failed: {e}")
+        return 0

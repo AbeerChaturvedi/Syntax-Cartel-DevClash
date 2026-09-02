@@ -33,21 +33,21 @@ async def _ensure_source_cache(conn):
         return
 
     # Load existing rows
-    rows = await conn.fetch("SELECT source_id, source_name FROM dim_source")
+    rows = await conn.fetch("SELECT source_id, provider_name FROM dim_source")
     for r in rows:
-        _source_id_cache[r["source_name"]] = r["source_id"]
+        _source_id_cache[r["provider_name"]] = r["source_id"]
 
-    # Ensure 'Twelve Data' row exists (may be new since seed was written)
+    # Ensure required provider rows exist (may be new since seed was written)
     required = {"Finnhub", "Twelve Data", "Simulator", "Replay"}
     for name in required:
         if name not in _source_id_cache:
             try:
                 sid = await conn.fetchval(
-                    """INSERT INTO dim_source (source_name, description)
-                       VALUES ($1, $2)
-                       ON CONFLICT (source_name) DO UPDATE SET source_name=EXCLUDED.source_name
+                    """INSERT INTO dim_source (provider_name)
+                       VALUES ($1)
+                       ON CONFLICT (provider_name) DO UPDATE SET provider_name=EXCLUDED.provider_name
                        RETURNING source_id""",
-                    name, f"Live data from {name}",
+                    name,
                 )
                 _source_id_cache[name] = sid
                 db_log.info(f"dim_source: ensured row for '{name}' (id={sid})")
@@ -61,15 +61,23 @@ def _resolve_source_id(tick_source: str) -> int:
 
 async def persist_scores(result: dict, tick_data: dict):
     """Persist computed scores to fact table (non-blocking, best-effort)."""
-    if not g._db_available or not g._db_pool or not db_circuit.is_available:
+    if not g._db_pool or not db_circuit.is_available:
         return
 
     try:
         from db.connection import get_or_create_time_id
         epoch_ms = tick_data.get("epoch_ms", int(time.time() * 1000))
-        ts = datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc)
+        # Postgres TIMESTAMP column is naive — strip tz to avoid the
+        # "can't subtract offset-naive and offset-aware datetimes" error
+        # raised by asyncpg when the wire encoding hits the driver.
+        ts = datetime.fromtimestamp(epoch_ms / 1000, tz=timezone.utc).replace(tzinfo=None)
 
         async with g._db_pool.acquire() as conn:
+            # If we reached the pool successfully, the DB is alive —
+            # keep _db_available in sync with reality (it can get stuck
+            # False from a failed first-boot attempt).
+            if not g._db_available:
+                g._db_available = True
             time_id = await get_or_create_time_id(conn, epoch_ms, ts)
             scores = result.get("scores", {})
 

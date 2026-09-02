@@ -126,6 +126,7 @@ class MarketSimulator:
             "timestamp": now.isoformat(),
             "epoch_ms": epoch_ms,
             "tick_id": self.tick_count,
+            "source": "simulator",
             "crisis_mode": self.crisis_mode,
             "crisis_intensity": round(self.crisis_intensity, 4),
             "assets": {}

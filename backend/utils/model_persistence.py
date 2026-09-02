@@ -126,7 +126,14 @@ class CheckpointManager:
                 anomaly_detector_if.scaler = scaler
                 anomaly_detector_if.is_fitted = True
             else:
-                anomaly_detector_if._auto_train()
+                # Scaler is unfitted but model was loaded — keep the loaded
+                # model and just refit the scaler rather than discarding both
+                from models.isolation_forest import anomaly_detector_if as _aif
+                if hasattr(anomaly_detector_if.model, 'estimators_') and anomaly_detector_if.model.estimators_:
+                    # Model is valid, only scaler needs a warm-up pass
+                    anomaly_detector_if.is_fitted = False  # will auto-fit scaler on next tick
+                else:
+                    anomaly_detector_if._auto_train()
             return True
         except Exception:
             return False
