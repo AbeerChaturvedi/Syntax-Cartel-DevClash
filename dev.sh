@@ -3,12 +3,30 @@
 #  Velure — one command local dev
 #  Starts Redis + Postgres (Docker) and runs the FastAPI backend
 #  and the Next.js frontend with hot reload, all from one terminal.
+#
+#    ./dev.sh          run using the data mode in .env (hybrid = live feeds)
+#    ./dev.sh --sim    force simulator mode: continuous synthetic data with
+#                      no external feeds or rate limits (best for demos)
+#
 #  Press Ctrl+C to stop the backend and frontend.
 #  Run ./stop.sh for a full stop (including the Docker services).
 # ═══════════════════════════════════════════════════════════
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
+
+# Simulator mode flag
+if [ "${1:-}" = "--sim" ]; then
+  export DATA_MODE=simulator
+  export ENABLE_SIMULATOR=true
+  echo "▸ Simulator mode: continuous synthetic data, no external feeds."
+fi
+
+# Reclaim our ports from any previous run so a restart is always clean.
+pkill -f "uvicorn main:app" 2>/dev/null || true
+pkill -f "next dev" 2>/dev/null || true
+lsof -ti:8000 2>/dev/null | xargs kill 2>/dev/null || true
+lsof -ti:3000 2>/dev/null | xargs kill 2>/dev/null || true
 
 echo "▸ Starting Redis + Postgres (Docker)…"
 docker compose up -d redis postgres

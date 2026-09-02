@@ -99,7 +99,19 @@ backend and the Next.js frontend together, with live reload on both.
 
 Then open **http://localhost:3000**. The first run automatically creates the
 backend virtualenv, installs backend and frontend dependencies, and writes
-`frontend/.env.local`, so there is nothing else to set up.
+`frontend/.env.local`, so there is nothing else to set up. Running it again
+always restarts cleanly (it reclaims its own ports first).
+
+**Demo mode (recommended for a live presentation):**
+
+```bash
+./dev.sh --sim
+```
+
+Simulator mode generates continuous synthetic market data with no external
+feeds, so it never hits API rate limits and the **Simulate Crisis** button
+always works. Use plain `./dev.sh` when you want real live market data (it
+uses the `DATA_MODE` in your `.env`, `hybrid` by default).
 
 **Stop:**
 

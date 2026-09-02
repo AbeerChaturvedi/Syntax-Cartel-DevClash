@@ -197,7 +197,11 @@ class RedisStreamManager:
             return None
 
         except Exception as e:
-            print(f"[REDIS] Consume failed: {e}")
+            # An idle stream (no ticks to read within the socket timeout) raises a
+            # benign timeout — expected when live feeds are quiet or rate limited.
+            # Only surface genuine consume failures.
+            if "timeout" not in str(e).lower() and "timed out" not in str(e).lower():
+                print(f"[REDIS] Consume failed: {e}")
             return None
 
     async def publish_inference(self, result: dict):
