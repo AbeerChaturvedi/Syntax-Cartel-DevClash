@@ -1,0 +1,53 @@
+# Build artefacts
+**/__pycache__/
+**/*.py[cod]
+**/*.so
+**/*.egg
+**/*.egg-info/
+**/dist/
+**/build/
+**/.eggs/
+
+# Virtual environments
+**/.venv/
+**/venv/
+**/env/
+
+# Node
+**/node_modules/
+**/.next/
+**/out/
+
+# Tests / coverage
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/htmlcov/
+**/.coverage
+**/coverage.xml
+
+# Data & model artefacts (do not ship binaries in CI context)
+**/data/
+**/crisis-simulation-data/raw/
+**/*.pkl
+**/*.pt
+**/*.pth
+**/*.joblib
+
+# Local env files
+**/.env
+**/.env.*
+!**/.env.example
+
+# Editor / OS
+**/.vscode/
+**/.idea/
+**/.DS_Store
+**/Thumbs.db
+
+# Logs
+**/*.log
+
+# Git
+**/.git/
+**/.github/CODEOWNERS

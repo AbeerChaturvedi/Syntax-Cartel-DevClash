@@ -1,0 +1,33 @@
+# CODEOWNERS — default reviewers per area of the codebase.
+# Lines are matched against the repo root, last match wins.
+
+# Backend (Python service)
+/backend/                          @AbeerChaturvedi
+/backend/models/                   @AbeerChaturvedi
+/backend/ingestion/                @AbeerChaturvedi
+/backend/pipeline/                 @AbeerChaturvedi
+/backend/db/                       @AbeerChaturvedi
+
+# Frontend (Next.js dashboard)
+/frontend/                         @AbeerChaturvedi
+
+# Deployment / production
+/deploy/                           @AbeerChaturvedi
+/docker-compose*.yml               @AbeerChaturvedi
+/Dockerfile*                       @AbeerChaturvedi
+/backend/Dockerfile                @AbeerChaturvedi
+/frontend/Dockerfile               @AbeerChaturvedi
+/DEPLOY.md                         @AbeerChaturvedi
+/SECURITY.md                       @AbeerChaturvedi
+/PRODUCTION_READINESS.md           @AbeerChaturvedi
+
+# Crisis-simulation data & backtesting
+/crisis-simulation-data/           @AbeerChaturvedi
+/backend/backtesting/              @AbeerChaturvedi
+
+# Top-level docs
+/README.md                         @AbeerChaturvedi
+/ARCHITECTURE.md                   @AbeerChaturvedi
+/CHANGELOG.md                      @AbeerChaturvedi
+/CONTRIBUTING.md                   @AbeerChaturvedi
+/LICENSE                           @AbeerChaturvedi

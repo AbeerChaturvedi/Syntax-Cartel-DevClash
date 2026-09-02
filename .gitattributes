@@ -1,0 +1,35 @@
+# Autodetect text files, force LF line endings, prevent binary mishaps.
+
+*                text=auto eol=lf whitespace=-trailing-space
+*.py             text eol=lf
+*.js             text eol=lf
+*.jsx            text eol=lf
+*.ts             text eol=lf
+*.tsx            text eol=lf
+*.json           text eol=lf
+*.yml            text eol=lf
+*.yaml           text eol=lf
+*.md             text eol=lf
+*.sql            text eol=lf
+*.sh             text eol=lf
+*.toml           text eol=lf
+
+*.png            binary
+*.jpg            binary
+*.jpeg           binary
+*.gif            binary
+*.webp           binary
+*.ico            binary
+*.pdf            binary
+*.pkl            binary
+*.pt             binary
+*.pth            binary
+*.joblib         binary
+
+# Linguist overrides — keep the README readable on the repo landing page
+README.md        linguist-documentation=true
+CHANGELOG.md     linguist-documentation=true
+LICENSE          linguist-documentation=true
+
+# Suppress linguist for build artefacts
+.github/workflows linguist-detectable=true
