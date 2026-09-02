@@ -19,6 +19,14 @@ import { RotateCcw, Maximize2, X } from 'lucide-react';
 const DEFAULT_CAM_Z = 4.5;
 const FULLSCREEN_CAM_Z = 3.8;
 
+// Canonical asset order — MUST match backend state_builder.TRACKED_ASSETS
+// so matrix[i][j] indexes line up with the right nodes.
+const TRACKED_ASSETS = [
+  'BAC', 'BTCUSD', 'C', 'DIA', 'ETHUSD',
+  'EURUSD', 'GBPUSD', 'GS', 'IWM', 'JPM',
+  'MS', 'QQQ', 'SPY', 'USDJPY', 'XLF',
+];
+
 /* ── Fibonacci sphere point distribution ──────────── */
 function fibonacciSphere(n) {
   const points = [];
@@ -274,7 +282,11 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
     }
     labelSpritesRef.current = [];
 
-    const tickers = Object.keys(assets || {});
+    // Use the canonical 15-asset list so matrix[i][j] indices match
+    // exactly what the backend emitted. ``assets`` may only contain 12
+    // keys (e.g. when heartbeat tick has no equity prices), so deriving
+    // nodes from it would silently mis-index the edges.
+    const tickers = TRACKED_ASSETS;
     if (tickers.length === 0) return;
 
     const nodeCount = tickers.length;

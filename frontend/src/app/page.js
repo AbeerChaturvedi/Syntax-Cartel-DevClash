@@ -22,6 +22,7 @@ import StressTestButton from './components/StressTestButton';
 import SpeedControl from './components/SpeedControl';
 import AlertBanner from './components/AlertBanner';
 import ExplainabilityPanel from './components/ExplainabilityPanel';
+import ErrorBoundary from './components/ErrorBoundary';
 import CorrelationHeatmap from './components/CorrelationHeatmap';
 import SRISKPanel from './components/SRISKPanel';
 import SystemMetrics from './components/SystemMetrics';
@@ -367,7 +368,7 @@ export default function Dashboard() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
           >
-            {content}
+            <ErrorBoundary>{content}</ErrorBoundary>
           </motion.div>
         </AnimatePresence>
       </>
@@ -390,7 +391,7 @@ export default function Dashboard() {
           <div className="header-right">
             <SpeedControl />
 
-            <div className="tick-counter">
+            <div className="tick-counter" suppressHydrationWarning>
               <Clock size={11} style={{ opacity: 0.4 }} />
               {time}
             </div>

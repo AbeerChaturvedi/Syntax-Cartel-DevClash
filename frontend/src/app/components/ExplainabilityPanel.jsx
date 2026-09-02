@@ -7,7 +7,9 @@
 import { motion } from 'framer-motion';
 
 // Assets in the exact alphabetical order used by state_builder.py
-// 15 assets × 4 features each = 60 total features (feature_0 … feature_59)
+// Backend now sends fully-labeled feature names ("BAC Return") so the
+// UI just displays them as-is. FEATURE_LABELS kept as a fallback for
+// any leftover `feature_N` keys during the deploy transition.
 const TRACKED_ASSETS = [
   'BAC', 'BTCUSD', 'C', 'DIA', 'ETHUSD',
   'EURUSD', 'GBPUSD', 'GS', 'IWM', 'JPM',
@@ -15,7 +17,7 @@ const TRACKED_ASSETS = [
 ];
 const FEATURE_NAMES = ['Return', 'Volatility', 'Mean Return', 'Max |Return|'];
 
-// Build the label map programmatically — guarantees correctness with no hand-editing
+// Fallback label map for the legacy `feature_N` key format
 const FEATURE_LABELS = {};
 TRACKED_ASSETS.forEach((asset, ai) => {
   FEATURE_NAMES.forEach((feat, fi) => {
@@ -25,6 +27,9 @@ TRACKED_ASSETS.forEach((asset, ai) => {
 
 
 function prettyLabel(key) {
+  // If the key already contains a space (e.g. "BAC Return"), it's a
+  // fully-labeled backend name — use it as-is.
+  if (key.includes(' ')) return key;
   return FEATURE_LABELS[key] || key.replace('feature_', 'F');
 }
 

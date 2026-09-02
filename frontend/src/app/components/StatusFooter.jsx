@@ -5,9 +5,9 @@
  */
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Activity } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -20,35 +20,39 @@ const SPEEDS = [
 
 export default function StatusFooter({ tickId = 0, crisisMode = false, isConnected = false }) {
   const [activeSpeed, setActiveSpeed] = useState('normal');
+  const [liveHz, setLiveHz] = useState(null);
 
-  const setSpeed = useCallback(async (mode) => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-    try {
-      const res = await fetch(`${API_URL}/api/speed/${mode}`, { method: 'POST', signal: controller.signal });
-      if (res.ok) setActiveSpeed(mode);
-    } catch {
-      // silent
-    } finally {
-      clearTimeout(timeout);
-    }
+  // Pull live tick rate from /api/metrics so the footer reflects reality,
+  // not a hardcoded "4 Hz" placeholder.
+  useEffect(() => {
+    let cancelled = false;
+    const fetchMetrics = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/metrics`);
+        if (!cancelled && res.ok) {
+          const m = await res.json();
+          setLiveHz(m.ticks_per_second);
+        }
+      } catch {}
+    };
+    fetchMetrics();
+    const id = setInterval(fetchMetrics, 3000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
+
+  const displayHz = liveHz != null ? liveHz.toFixed(1) : (SPEEDS.find(s => s.id === activeSpeed)?.hz ?? 4);
 
   return (
     <footer className="status-footer">
       <div className="footer-section">
         <span className="footer-label">PIPELINE</span>
-        <div className="speed-controls">
-          {SPEEDS.map(s => (
-            <button
-              key={s.id}
-              className={`speed-btn ${activeSpeed === s.id ? 'active' : ''}`}
-              onClick={() => setSpeed(s.id)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+        <span style={{
+          fontFamily: 'var(--font-mono)', fontSize: '11px',
+          color: 'var(--text-secondary)', marginLeft: '8px',
+        }}>
+          <Activity size={11} style={{ marginRight: 4, opacity: 0.5 }} />
+          {displayHz} Hz · {tickId.toLocaleString()} ticks
+        </span>
       </div>
 
       <div className="footer-section footer-center">
