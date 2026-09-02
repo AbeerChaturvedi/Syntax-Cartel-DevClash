@@ -33,6 +33,7 @@ import PortfolioBuilder from './components/PortfolioBuilder';
 import BacktestView from './components/BacktestView';
 import ReplayController from './components/ReplayController';
 import MarketNews from './components/MarketNews';
+import VelureMark from './components/VelureMark';
 
 /* ── Agent definitions ──────────────────────────────── */
 const AGENTS = [
@@ -242,7 +243,7 @@ export default function Dashboard() {
     return (
       <div className="loading-container">
         <div className="loading-logo">
-          <div className="loading-logo-mark">V</div>
+          <div className="loading-logo-mark"><VelureMark size={30} color="#ffffff" /></div>
           <div className="loading-logo-ring" />
         </div>
         <div className="loading-text">
@@ -386,7 +387,7 @@ export default function Dashboard() {
         {/* Header */}
         <header className="header">
           <div className="header-left">
-            <div className="logo-mark">V</div>
+            <div className="logo-mark"><VelureMark size={19} color="#ffffff" /></div>
             <div>
               <div className="header-title">Velure</div>
               <div className="header-subtitle">Financial Crisis Early Warning System</div>

@@ -8,6 +8,7 @@
 'use client';
 
 import { useRef, useEffect, useState, memo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -137,7 +138,9 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
       if (labelRenderer.domElement.parentNode === el) el.removeChild(labelRenderer.domElement);
       R3.current = {};
     };
-  }, []);
+    // Re-run when fullscreen toggles: the mount div remounts into/out of the
+    // body portal, so we rebuild the renderer on the current mount node.
+  }, [isFullscreen]);
 
   // ── build / update nodes when the asset set changes ──
   useEffect(() => {
@@ -163,7 +166,7 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
       r.group.add(label);
       return { ticker, mesh, label, p };
     });
-  }, [assets]);
+  }, [assets, isFullscreen]);
 
   // ── update edges + node heat on correlation change ──
   useEffect(() => {
@@ -202,7 +205,7 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
       r.edges = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }));
       r.group.add(r.edges);
     }
-  }, [correlationMatrix]);
+  }, [correlationMatrix, isFullscreen]);
 
   // resize after fullscreen transition
   useEffect(() => { const t = setTimeout(() => R3.current.onResize?.(), 60); return () => clearTimeout(t); }, [isFullscreen]);
@@ -215,8 +218,8 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
 
   const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
 
-  return (
-    <div className={`cn-wrapper ${isFullscreen ? 'cn-fullscreen' : ''}`}>
+  const inner = (
+    <>
       {isFullscreen && <div className="cn-overlay" onClick={toggleFullscreen} />}
       <div className={`cn-inner ${isFullscreen ? 'cn-inner-fs' : ''}`}>
         <div ref={mount} className={`contagion-canvas-container ${isFullscreen ? 'cn-canvas-fs' : ''}`} style={{ position: 'relative' }} />
@@ -230,8 +233,15 @@ const ContagionNetwork = memo(function ContagionNetwork({ correlationMatrix, ass
         </div>
         {isFullscreen && <div className="cn-fs-hint">Scroll to zoom. Drag to rotate. Press ESC to exit.</div>}
       </div>
-    </div>
+    </>
   );
+
+  // In fullscreen, render via a portal to document.body so the fixed overlay
+  // escapes the glass backdrop-filter ancestors (which otherwise trap it).
+  if (isFullscreen && typeof document !== 'undefined') {
+    return createPortal(<div className="cn-wrapper cn-fullscreen">{inner}</div>, document.body);
+  }
+  return <div className="cn-wrapper">{inner}</div>;
 });
 
 export default ContagionNetwork;

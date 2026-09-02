@@ -32,7 +32,7 @@ export default function RootLayout({ children }) {
       className={`dark ${GeistSans.variable} ${GeistMono.variable} ${inter.variable} ${jetbrainsMono.variable}`}
     >
       <head>
-        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%233b82f6'/><text x='50' y='72' font-size='60' font-weight='700' fill='white' text-anchor='middle' font-family='system-ui'>V</text></svg>" />
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><rect width='120' height='120' rx='26' fill='%233b82f6'/><path d='M26 34 L60 94 L94 34 L72 42 L60 78 L48 42 Z' fill='white'/></svg>" />
       </head>
       <body>
         {children}
