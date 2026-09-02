@@ -4,31 +4,41 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { useAnimatedNumber } from '@/lib/useAnimatedNumber';
 
 function getScoreColor(score) {
-  if (score < 0.3) return '#4ade80';
-  if (score < 0.5) return '#facc15';
-  if (score < 0.7) return '#fb923c';
-  return '#f87171';
+  if (score < 0.3) return '#10b981';
+  if (score < 0.5) return '#f59e0b';
+  if (score < 0.7) return '#fb7185';
+  return '#f43f5e';
 }
 
 function ScoreCard({ label, value, maxValue = 1 }) {
   const color = getScoreColor(value);
-  const pct = Math.min(100, (value / maxValue) * 100);
+  const anim = useAnimatedNumber(value);
+  const pct = Math.min(100, (anim / maxValue) * 100);
+  const hot = value >= 0.5;
 
   return (
-    <div className="score-card">
+    <div
+      className="score-card"
+      style={{
+        borderRadius: 12,
+        transition: 'box-shadow 400ms ease',
+        boxShadow: hot ? `0 0 26px ${color}30, inset 0 0 0 1px ${color}50` : undefined,
+      }}
+    >
       <div className="score-card-label">{label}</div>
-      <div className="score-card-value" style={{ color }}>
-        {(value * 100).toFixed(1)}
+      <div className="score-card-value" style={{ color, textShadow: hot ? `0 0 18px ${color}80` : undefined, fontVariantNumeric: 'tabular-nums' }}>
+        {(anim * 100).toFixed(1)}
         <span style={{ fontSize: '14px', opacity: 0.5 }}>%</span>
       </div>
       <div className="score-card-bar">
         <motion.div
           className="score-card-bar-fill"
-          style={{ background: color }}
+          style={{ background: color, boxShadow: `0 0 10px ${color}70` }}
           animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
+          transition={{ type: 'spring', stiffness: 120, damping: 22 }}
         />
       </div>
     </div>
