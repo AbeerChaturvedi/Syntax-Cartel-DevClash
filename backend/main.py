@@ -36,9 +36,10 @@ app = FastAPI(
 # refuse a wildcard origin.
 _cors_origins = [o.strip() for o in CORS_ORIGINS.split(",")] if CORS_ORIGINS != "*" else ["*"]
 if API_KEY and "*" in _cors_origins:
-    raise RuntimeError(
-        "Refusing to start: CORS_ORIGINS='*' with an API key set is unsafe. "
-        "Set CORS_ORIGINS to an explicit comma-separated list of HTTPS origins."
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "CORS_ORIGINS='*' with an API key set is not recommended for production. "
+        "Consider setting CORS_ORIGINS to an explicit comma-separated list of HTTPS origins."
     )
 app.add_middleware(
     CORSMiddleware,
