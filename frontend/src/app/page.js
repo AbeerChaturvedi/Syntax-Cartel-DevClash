@@ -70,16 +70,16 @@ const AGENTS = [
 
 /* ── Theme Toggle Hook ───────────────────────────────── */
 function useTheme() {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(true);
 
   useEffect(() => {
     const stored = localStorage.getItem('velure-theme');
-    if (stored === 'dark') {
-      setDark(true);
-      document.documentElement.classList.add('dark');
-    } else {
+    if (stored === 'light') {
       setDark(false);
       document.documentElement.classList.remove('dark');
+    } else {
+      setDark(true);
+      document.documentElement.classList.add('dark');
     }
   }, []);
 
@@ -230,6 +230,12 @@ export default function Dashboard() {
   const copula = data.copula || null;
 
   const activities = useActivityFeed(dashboardData, isConnected);
+
+  /* ── Ambient stress: drive the reactive background glow ── */
+  useEffect(() => {
+    const s = Math.max(0, Math.min(1, scores.combined_anomaly || 0));
+    document.documentElement.style.setProperty('--stress', String(s));
+  }, [scores.combined_anomaly]);
 
   /* ── Loading ───────────────────────────────────── */
   if (!dashboardData) {

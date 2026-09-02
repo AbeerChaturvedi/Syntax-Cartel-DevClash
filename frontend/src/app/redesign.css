@@ -1,0 +1,191 @@
+/* ═══════════════════════════════════════════════════════════
+   Project Velure — Redesign Layer (Cyber Institutional)
+   Imported AFTER globals.css so it wins the cascade.
+   Dark first glassmorphism, neon data accents, motion, ambient stress.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Fonts ──────────────────────────────────────────────── */
+:root {
+  --font-sans: var(--font-geist-sans), var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-geist-mono), var(--font-jetbrains), 'JetBrains Mono', monospace;
+
+  /* Shared radii + motion (rounder, springier than the flat base) */
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --transition-base: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 480ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Ambient system stress (0 calm .. 1 crisis), set from page.js */
+  --stress: 0;
+}
+
+/* ── Dark theme: obsidian + glass + neon ────────────────── */
+html.dark {
+  --bg-app: #08080b;
+  --bg-panel: #0d0e14;
+  --bg-card: rgba(255, 255, 255, 0.028);
+  --bg-card-hover: rgba(255, 255, 255, 0.055);
+  --bg-sidebar: rgba(14, 16, 24, 0.55);
+  --bg-sidebar-hover: rgba(255, 255, 255, 0.04);
+  --bg-sidebar-active: rgba(59, 130, 246, 0.14);
+  --bg-input: rgba(255, 255, 255, 0.04);
+  --bg-tertiary: rgba(255, 255, 255, 0.05);
+
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-bg-2: rgba(255, 255, 255, 0.055);
+  --glass-flat: #101219;
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: 14px;
+
+  --border-primary: rgba(255, 255, 255, 0.08);
+  --border-active: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(255, 255, 255, 0.045);
+
+  --text-primary: #e8eaf0;
+  --text-secondary: #a7afc2;
+  --text-tertiary: #6c7488;
+  --text-muted: #565e72;
+
+  /* Neon data accents */
+  --green: #10b981;  --green-dim: rgba(16, 185, 129, 0.12);  --green-glow: rgba(16, 185, 129, 0.45);
+  --yellow: #f59e0b; --yellow-dim: rgba(245, 158, 11, 0.12); --yellow-glow: rgba(245, 158, 11, 0.45);
+  --orange: #fb7185; --orange-dim: rgba(251, 113, 133, 0.12);--orange-glow: rgba(251, 113, 133, 0.4);
+  --red: #f43f5e;    --red-dim: rgba(244, 63, 94, 0.12);     --red-glow: rgba(244, 63, 94, 0.5);
+  --blue: #3b82f6;   --blue-dim: rgba(59, 130, 246, 0.12);   --blue-glow: rgba(59, 130, 246, 0.5);
+  --indigo: #6366f1; --indigo-dim: rgba(99, 102, 241, 0.12); --indigo-glow: rgba(99, 102, 241, 0.4);
+  --cyan: #22d3ee;   --cyan-dim: rgba(34, 211, 238, 0.12);
+  --purple: #a855f7; --purple-dim: rgba(168, 85, 247, 0.12);
+
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --gauge-track: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Light theme: refined glass (kept as polished secondary) ── */
+:root {
+  --bg-panel: #ffffff;
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-2: rgba(255, 255, 255, 0.9);
+  --glass-flat: #ffffff;
+  --glass-border: rgba(15, 23, 42, 0.08);
+  --glass-blur: 12px;
+  --green: #059669; --green-glow: rgba(5, 150, 105, 0.25);
+  --red: #e11d48;   --red-glow: rgba(225, 29, 72, 0.25);
+  --blue: #2563eb;  --blue-glow: rgba(37, 99, 235, 0.25);
+  --yellow: #d97706;
+  --shadow-card: 0 4px 20px rgba(15, 23, 42, 0.08);
+}
+
+/* ── App background with reactive stress glow ───────────── */
+html.dark body,
+html.dark .app-shell {
+  background: var(--bg-app);
+}
+html.dark .app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(60% 50% at 78% 8%,
+      color-mix(in srgb, var(--blue) calc(14% + var(--stress) * 20%), transparent), transparent 70%),
+    radial-gradient(55% 60% at 12% 100%,
+      color-mix(in srgb,
+        color-mix(in srgb, var(--green), var(--red) calc(var(--stress) * 100%))
+        calc(10% + var(--stress) * 26%), transparent), transparent 70%);
+  transition: background 900ms ease;
+}
+.app-container, .header, .left-sidebar, .right-sidebar, .main-content { position: relative; z-index: 1; }
+
+/* ── Glass surfaces ─────────────────────────────────────── */
+.card,
+.widget-card,
+html.dark .left-sidebar,
+html.dark .right-sidebar {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: transform var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
+}
+.card:hover,
+.widget-card:hover {
+  border-color: var(--border-active);
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--glass-border);
+  transform: translateY(-2px);
+}
+
+/* Floating sidebars */
+html.dark .left-sidebar { margin: 12px 0 12px 12px; border-radius: var(--radius-lg); }
+html.dark .right-sidebar { margin: 12px 12px 12px 0; border-radius: var(--radius-lg); }
+
+/* ── Header: floating blurred pill ──────────────────────── */
+html.dark .header {
+  background: color-mix(in srgb, var(--bg-app) 62%, transparent);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--glass-border);
+}
+.logo-mark {
+  background: linear-gradient(135deg, var(--blue), var(--indigo)) !important;
+  box-shadow: 0 0 18px var(--blue-glow);
+}
+
+/* ── Numbers: tabular so live values do not reflow ──────── */
+.mono, .tick-counter, .card-value, .metric-value,
+[class*="value"], [class*="score"], [class*="ticker"] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ── Buttons + nav micro interactions ───────────────────── */
+.sidebar-nav-item, .cn-btn, .theme-toggle, .speed-btn, button {
+  transition: transform var(--transition-base), background var(--transition-base), border-color var(--transition-base), box-shadow var(--transition-base);
+}
+.sidebar-nav-item:hover { background: var(--bg-sidebar-hover); transform: translateX(2px); }
+.sidebar-nav-item.active {
+  background: var(--bg-sidebar-active);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 40%, transparent), 0 0 18px color-mix(in srgb, var(--blue) 18%, transparent);
+}
+.cn-btn:active, .theme-toggle:active, button:active { transform: scale(0.97); }
+.connection-badge.connected { box-shadow: 0 0 16px var(--green-glow); }
+.pulse-dot.green { box-shadow: 0 0 10px var(--green-glow); }
+
+/* ── Live ticker: neon change glow ──────────────────────── */
+.ticker-up, [class*="ticker"] .up, .change-up { text-shadow: 0 0 12px var(--green-glow); }
+.ticker-down, [class*="ticker"] .down, .change-down { text-shadow: 0 0 12px var(--red-glow); }
+
+/* ── Card badges ────────────────────────────────────────── */
+.card-badge {
+  border-radius: var(--radius-full);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(6px);
+}
+
+/* ── Loading: glow the mark ─────────────────────────────── */
+.loading-logo-mark { box-shadow: 0 0 40px var(--blue-glow); }
+
+/* ── Value change pulse (added by JS on updated cards) ──── */
+@keyframes velure-pulse {
+  0% { box-shadow: var(--shadow-card), 0 0 0 0 currentColor; }
+  100% { box-shadow: var(--shadow-card), 0 0 0 0 transparent; }
+}
+.pulse-change { animation: velure-pulse 600ms ease-out; }
+
+/* ── Accessibility: honor reduced motion ────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  html.dark .app-shell::before { transition: none; }
+}
+
+/* Focus ring for keyboard users */
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: var(--radius-sm); }
