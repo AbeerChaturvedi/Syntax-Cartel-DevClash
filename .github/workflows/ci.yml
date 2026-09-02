@@ -14,6 +14,42 @@ env:
   NODE_VERSION: "22"
 
 jobs:
+  secrets-guard:
+    name: secrets · guard rails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if .env (or any real env variant) is tracked
+        run: |
+          set -euo pipefail
+          tracked=$(git ls-files | grep -E '^\.env(\.[^/]+)?$' | grep -v '^\.env\.example$' || true)
+          if [ -n "$tracked" ]; then
+            echo "❌ Refusing to merge: the following real .env files are tracked by git:"
+            echo "$tracked"
+            echo "Add them to .gitignore, then git rm --cached <file>."
+            exit 1
+          fi
+
+      - name: Fail if .env.example contains a plausible-looking live API key
+        run: |
+          set -euo pipefail
+          # An *_API_KEY= line in .env.example is allowed only if its value is
+          # empty or starts with 'your_' (placeholder). Anything else is treated
+          # as a real key and fails the build.
+          awk -F= '
+            /^[A-Z0-9_]*API_KEY=/ {
+              val = substr($0, index($0, "=") + 1)
+              if (val !~ /^$/ && val !~ /^your_/) {
+                print FILENAME ":" NR ": " $0
+                found = 1
+              }
+            }
+            END { exit found ? 1 : 0 }
+          ' .env.example
+
   backend:
     name: backend · lint + test
     runs-on: ubuntu-latest

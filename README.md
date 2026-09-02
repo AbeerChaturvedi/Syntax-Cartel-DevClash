@@ -38,15 +38,16 @@ It ingests live market data from **18 financial instruments across 5 segments** 
 3. [Repository layout](#repository-layout)
 4. [Quick start (Docker, recommended)](#quick-start-docker-recommended)
 5. [Quick start (manual / local development)](#quick-start-manual--local-development)
-6. [Environment configuration](#environment-configuration)
-7. [Useful endpoints](#useful-endpoints)
-8. [Crisis simulation](#crisis-simulation)
-9. [Documentation index](#documentation-index)
-10. [Testing](#testing)
-11. [Deployment](#deployment)
-12. [Project status](#project-status)
-13. [Team](#team)
-14. [License](#license)
+6. [Secrets & API keys](#secrets--api-keys)
+7. [Environment configuration](#environment-configuration)
+8. [Useful endpoints](#useful-endpoints)
+9. [Crisis simulation](#crisis-simulation)
+10. [Documentation index](#documentation-index)
+11. [Testing](#testing)
+12. [Deployment](#deployment)
+13. [Project status](#project-status)
+14. [Team](#team)
+15. [License](#license)
 
 ---
 
@@ -292,6 +293,86 @@ npm run dev
 ```
 
 Dashboard is at `http://localhost:3000`. The dev server proxies API/WebSocket calls to the backend on port 8000 by default — see `next.config.mjs` if you need to override.
+
+---
+
+## Secrets & API keys
+
+Velure has **three** third-party API integrations and zero of them are required for the app to run. Here is how a new contributor sets things up without ever seeing anyone else's keys.
+
+### The `.env.example` contract
+
+The repo ships [`.env.example`](./.env.example) — a fully-populated template with placeholder values (`your_finnhub_api_key_here`, etc.) for every secret the app reads. **This file is the source of truth.** It is committed, version-controlled, and reviewed in PRs whenever the app grows a new key.
+
+The repo's [`.gitignore`](./.gitignore) excludes `.env`, `.env.local`, and every variant — only `.env.example` is allowed to ship with the repo. You can verify with:
+
+```bash
+git ls-files | grep -E '^\.env'    # → only .env.example should appear
+git check-ignore -v .env          # → prints the matching gitignore rule
+```
+
+### First-run checklist (new contributor)
+
+```bash
+# 1. Copy the template — never type values by hand
+cp .env.example .env
+
+# 2. Pick a data mode (see table below)
+
+# 3. Get free keys only for the providers you actually picked.
+#    Zero-friction option: leave all *_API_KEY placeholders alone
+#    and run with DATA_MODE=simulator. The app works fully offline.
+
+# 4. Boot the stack
+docker compose up --build
+```
+
+### Where to get free keys
+
+| Provider | URL | Free-tier limit | What it powers |
+|---|---|---|---|
+| **Finnhub** | <https://finnhub.io> | 60 REST/min, WebSocket unlimited | Equities, FX, crypto live ticks (primary live feed) |
+| **Twelve Data** | <https://twelvedata.com> | 800 requests/day | FX pairs and intraday aggregates |
+| **Polygon.io** | <https://polygon.io> | 5 REST/min | Equities (US) |
+
+You don't need all three. Pick one (or none) — see the data-mode table in [Quick start](#quick-start-docker-recommended).
+
+### What is *not* a secret
+
+Everything that lives in `.env` but is **not** an API key is safe to share with collaborators, screenshot, or paste in a GitHub issue:
+
+| Knob | Example | Purpose |
+|---|---|---|
+| `DATA_MODE` | `simulator` / `hybrid` / `finnhub` | Where ticks come from |
+| `TICK_RATE`, `BATCH_SIZE`, `FLUSH_INTERVAL_MS` | `0.25`, `10`, `500` | Throughput vs latency |
+| `IF_CONTAMINATION`, `LSTM_HIDDEN_DIM`, … | `0.05`, `64` | Model hyperparameters |
+| `ENSEMBLE_*_WEIGHT` | `0.35` | How model scores are fused |
+| `ALERT_THRESHOLD_*` | `0.7`, `0.85` | Severity boundaries |
+| `POSTGRES_PASSWORD` | `velure_hackathon_2026` | **Local-only Postgres password — change in prod, not a third-party secret** |
+
+So when you DM your `.env` to a friend, the friendly thing to do is either:
+
+1. **Send `.env.example` plus a one-liner** saying "I run `DATA_MODE=finnhub` and `ENSEMBLE_IF_WEIGHT=0.4` — feel free to override," and let them fill in their *own* keys, or
+2. **Run a redact step first**:
+
+   ```bash
+   cp .env .env.shared
+   sed -i 's/=.*\(_API_KEY=\)/=\1your_/g' .env.shared    # leaves placeholders
+   sed -i 's/=.*\(_PASSWORD=\)/=\1REDACTED/g' .env.shared
+   ```
+
+### If a key ever leaks
+
+Free-tier keys are cheap to rotate, and you should rotate them the moment you suspect exposure (a public gist, a wrong Slack channel, a leaked chat transcript, even this terminal conversation). Each provider's dashboard has a "regenerate" button that instantly invalidates the old string. Then:
+
+```bash
+# in your local checkout
+$EDITOR .env
+# replace FINNHUB_API_KEY=...
+docker compose restart backend
+```
+
+For team-grade rotation, see [SECURITY.md](./SECURITY.md).
 
 ---
 

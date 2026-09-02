@@ -81,8 +81,9 @@ The dashboard will be at <http://localhost:3000>, the API at <http://localhost:8
 
 ### Secrets, API keys, models
 
-- Never commit `.env`, `*.pkl`, `*.pt`, `data/`. These are gitignored.
-- New data-feed integrations must read their API key from the environment, never from a constant.
+- **Never commit `.env`, `*.pkl`, `*.pt`, `data/`.** These are gitignored, and CI has a `secrets-guard` job that fails the build if `.env` is ever tracked or if `.env.example` contains a non-placeholder `*_API_KEY=…`.
+- New contributors start with `cp .env.example .env` and paste **their own** keys for the providers they actually use. The simulator mode (`DATA_MODE=simulator`) needs zero keys and is the right default for a first run.
+- New data-feed integrations must read their API key from the environment, never from a constant, and the corresponding entry must be added to `.env.example` with a `your_<provider>_api_key_here` placeholder.
 
 ## Testing
 
