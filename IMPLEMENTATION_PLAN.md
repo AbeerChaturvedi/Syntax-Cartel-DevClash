@@ -1,519 +1,311 @@
-# Project Velure — Implementation Plan (v4 — Deployable Track)
-## Real-Time Financial Crisis Early Warning System
-### DevClash 2026 — Syntax Cartel
+# Velure — Master Implementation Plan (Audit + Active Issues)
+**Date:** 2026-09-02 | **Scope:** All backend, frontend, deployment, runtime issues observed
 
-> **Stance:** this is not a hackathon demo dressed up in production clothes.
-> It is a production-grade, institutionally-defensible early warning system
-> that happens to be finishable in a 48-hour sprint — and is now wired for
-> a real deployment, not just a judging demo.
+This plan combines:
+1. Re-verification of every item in `FIXES_REQUIRED.md` (22 issues)
+2. New issues found during live operation (real-data mode, off-hours tick collapse, missing error boundaries)
 
----
-
-## 0a. What Changed From v3 (now v4 — deployment hardening)
-
-v3 closed the *modeling* gaps. v4 closes the *deployment* gaps that
-[PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) §2 + §3 called blocking:
-
-| # | Gap | v4 Addition |
-|---|-----|-------------|
-| 1 | Plain-HTTP backend would leak the API key on every WS upgrade | **Caddy reverse proxy overlay** ([docker-compose.tls.yml](docker-compose.tls.yml) + [deploy/caddy/Caddyfile](deploy/caddy/Caddyfile)) — auto-Let's Encrypt, HSTS, CSP, h2/h3 |
-| 2 | Postgres volume was the only copy of the data | **Backup sidecar** ([docker-compose.backup.yml](docker-compose.backup.yml) + [deploy/postgres-backup/](deploy/postgres-backup/)) — pg_dump → gzip on schedule with retention + optional S3 |
-| 3 | Prometheus / Grafana shipped as empty directories | **Full observability overlay** ([docker-compose.observability.yml](docker-compose.observability.yml)) — Prometheus scrape config + alert rules, Grafana provisioned datasource + the `Velure — Operational Overview` dashboard |
-| 4 | No sustained-load proof of pipeline behaviour | **k6 harness** ([tests/load/k6_dashboard_load.js](tests/load/k6_dashboard_load.js)) — REST pollers + 200 concurrent WS clients + burst API, with hard pass thresholds |
-| 5 | Checkpoint recovery had no integration test | **pytest** ([tests/test_checkpoint_recovery.py](tests/test_checkpoint_recovery.py)) — round-trip + atomic-promotion + version mismatch + corrupt-temp-dir + state-survives-restart |
-| 6 | WS endpoint was unauthenticated even when API key was set | **WS auth gate** in [main.py](backend/main.py) — closes 1008 *before* allocation; accepts `X-API-Key` header or `?api_key=…` |
-| 7 | CORS could silently start with `*` while API key was set | **Startup assertion** — backend refuses to boot if `CORS_ORIGINS='*'` and `VELURE_API_KEY` is non-empty |
-| 8 | Alerts were not tamper-evident; no model lineage stamping | **Hash-chained `audit_log`** + **`model_lineage`** registry ([backend/db/migrations/04_audit.sql](backend/db/migrations/04_audit.sql)). Every dispatched alert is recorded with `model_version` + `checkpoint_hash`. `GET /api/audit/verify` walks the chain. |
-| 9 | No operator-facing deploy guide | **[DEPLOY.md](DEPLOY.md)** — full compose layout, `.env.prod` reference, first-boot, day-2, restore drill, troubleshooting |
-| 10 | No published threat model | **[SECURITY.md](SECURITY.md)** — trust boundaries, what we enforce, what we don't, operator hygiene checklist |
+Items marked ✅ are already fixed. Items marked 🔴 remain open and must be done in the order shown.
 
 ---
 
-## 0. What Changed From v2
+## STATUS OF ORIGINAL 22 ISSUES (FIXES_REQUIRED.md)
 
-v2 delivered the core demo stack (GBM simulator, IF + LSTM + CISS + Merton/SRISK + VaR, Redis Streams, FastAPI/WS, Next.js dashboard, star schema, circuit breakers, Prometheus, Finnhub connector).
+| # | Issue | Severity | Status | Where |
+|---|-------|----------|--------|-------|
+| 1.1 | Missing `/api/metrics` endpoint | CRITICAL | ✅ FIXED | `backend/Routes/system.py:91` |
+| 1.2 | CISS `cdf_score` vs `calibrated_score` | CRITICAL | ✅ FIXED (both keys emitted) | `backend/models/ciss_scorer.py:229,231` |
+| 1.3 | Portfolio VaR double-multiplication | CRITICAL | ✅ FIXED | `backend/portfolio/portfolio_var.py:79` |
+| 1.4 | Historical data JSON vs CSV + empty dir | CRITICAL | ✅ FIXED (CSV sibling + 7812 seeder bars) | `backend/ingestion/historical_loader.py` |
+| 1.5 | aiohttp alerting fallback | CRITICAL | ✅ FIXED (urllib fallback present) | `backend/utils/alerting.py:270-287` |
+| 1.6 | Missing uvloop dependency | CRITICAL | ✅ FIXED (in reqs + Dockerfile) | `backend/requirements.txt:18`, `Dockerfile:46` |
+| 2.1 | Feature label misalignment | HIGH | ✅ FIXED (dynamic from 15 assets × 4 metrics) | `frontend/.../ExplainabilityPanel.jsx:11-24` |
+| 2.2 | Heatmap 18-vs-15 dimensions | HIGH | ✅ FIXED (15 assets matching state_builder) | `frontend/.../CorrelationHeatmap.jsx:11-15` |
+| 2.3 | Finnhub free-tier Forex failures | HIGH | ✅ FIXED (uses Twelve Data for FX) | `backend/ingestion/finnhub_connector.py:33,273` |
+| 2.4 | NewsData.io query errors | HIGH | ✅ FIXED (uses `category=business`, `get_running_loop`) | `backend/Routes/news.py:68,124` |
+| 2.5 | DB foreign key hardcoding | HIGH | ✅ FIXED (dynamic `_source_id_cache`) | `backend/database/persistence.py:30-55` |
+| 2.6 | Checkpoint scaler deserialization | HIGH | ✅ FIXED (preserves loaded model) | `backend/utils/model_persistence.py:128-137` |
+| 3.1 | Three.js WebGL memory leak | MEDIUM | ✅ FIXED (5 dispose calls present) | `frontend/.../ContagionNetwork.jsx` |
+| 3.2 | Next.js SSR hydration flash | MEDIUM | ✅ FIXED (`suppressHydrationWarning` on clock) | `frontend/src/app/page.js:393` |
+| 3.3 | Speed control race condition | MEDIUM | ✅ FIXED (removed duplicate controls) | `frontend/.../StatusFooter.jsx` |
+| 3.4 | Duplicate singleton in harness.py | MEDIUM | ✅ FIXED (1 instance) | `backend/backtesting/harness.py:232` |
+| 3.5 | Stale refactor scripts | MEDIUM | ✅ FIXED (files don't exist) | n/a |
+| 3.6 | JSON vs CSV format mismatch | MEDIUM | ✅ FIXED (CSV sibling + synthetic seeder) | `backend/ingestion/historical_loader.py` |
+| 4.1 | Case-colliding Readme files | LOW | ✅ FIXED (only README.md exists) | n/a |
+| 4.2 | Deprecated event loop refs | LOW | ✅ FIXED (no `get_event_loop()` calls) | grep clean |
+| 4.3 | Missing WS error boundaries | LOW | ❌ NOT FIXED | n/a |
 
-v3 closes five gaps that separate "demo" from "deployable":
-
-| # | Gap | v3 Addition |
-|---|-----|-------------|
-| 1 | No tail-dependence model (Pearson collapses in crises) | **t-Copula + GARCH(1,1)** module producing tail-dependence matrix, lower-tail coefficient, and joint-crash probability |
-| 2 | Processing-time pipeline → a single slow API stalls fusion | **Event-Time Watermarking** with bounded lateness + last-known-good patching |
-| 3 | Every restart cold-starts IF + LSTM + CDF buffers | **Model persistence layer** (`.pkl`, `.pt`, compressed CDF state) with atomic writes |
-| 4 | Alerts are unfalsifiable — no evidence the model would fire on real crises | **Backtesting harness** that replays historical Lehman/COVID/SVB data and computes ROC/AUC on labeled crisis dates |
-| 5 | Alerts die on the WebSocket + a Python deque | **Multi-sink alert dispatcher** (Slack / Discord / PagerDuty / generic webhook / email) with severity routing + dedup |
-
-Plus: historical replay mode, portfolio-level VaR for arbitrary user portfolios, TimescaleDB hypertable option, multi-stage Docker, smoke-tested API surface, production env split.
+**Scorecard:** 21/22 fixed. Only **4.3 (Error Boundaries)** remains from FIXES_REQUIRED.md.
 
 ---
 
-## 1. Architecture Blueprint (v3)
+## NEW ISSUES FOUND DURING LIVE OPERATION
+
+These were not in FIXES_REQUIRED.md — they surfaced when the system was verified end-to-end with real API keys.
+
+### NEW-A: Tick pipeline stops when no trades flow (off-hours bug) — CRITICAL
+- **Symptom:** Live tick rate dropped from 3.94 Hz → **0.99 Hz** after real connectors activated.
+- **Cause:** `ingestion_producer()` in `pipeline/tasks.py` skips simulator generation when `live_connected=True`. Finnhub WebSocket only emits ticks when a real trade happens. When US market is closed (~21 hours/day), zero trades → no ticks → pipeline idle → models still report stale scores.
+- **Impact:** Models continue to print `combined_anomaly: 0.6476` from the last BTC trade but don't refresh for hours. Dashboard appears frozen.
+- **Fix:** Switch from "either/or" to "merge": always run simulator at low rate for filler ticks, override prices with real trades as they arrive. Concretely: emit a "heartbeat" tick every 2s using last-known real prices, intersperse with real-trade ticks.
+- **File:** `backend/pipeline/tasks.py:34-44`
+- **Effort:** 20 min
+
+### NEW-B: Simulator ticks have `source: None` — LOW
+- **Symptom:** Probed ticks show `"source": null` (cosmetic). Finnhub ticks correctly say `"finnhub_live"`.
+- **Cause:** `MarketSimulator.generate_tick()` doesn't include `"source"` key.
+- **Impact:** Cannot distinguish simulator vs real data when debugging. `db_connected: false` flag also stale (set False on first boot failure, never reset after recovery).
+- **Fix:** Add `"source": "simulator"` to simulator output dict. Reset `_db_available` after first successful query.
+- **Files:** `backend/ingestion/simulator.py:130-135`, `backend/database/persistence.py`
+- **Effort:** 10 min
+
+### NEW-C: Finnhub key may be malformed — UNKNOWN
+- **Symptom:** `"dabu9apr01qvvgl6tmp0dabu9apr01qvvgl6tmpg"` is 40 chars. Real Finnhub keys are typically 32 alphanumeric chars from `finnhub.io` dashboard.
+- **Cause:** Key was provided by user; may have been copy-pasted twice or truncated.
+- **Impact:** Auth may work initially (Finnhub accepts malformed keys with HTTP 401 errors that get silently swallowed) but fail mid-session.
+- **Fix:** Ask user to regenerate at finnhub.io and verify against expected length/format.
+- **Effort:** 5 min (verification only)
+
+### NEW-D: `_db_available` flag stuck False after recovery — LOW (cosmetic)
+- **Symptom:** `/api/metrics` reports `"db_connected": false` while circuit breaker shows 81+ successful writes.
+- **Cause:** `init_db()` sets `_db_available=True` on first success, but if the very first attempt failed (port-5432 ghost proxy from earlier in the session), the flag stays False forever.
+- **Impact:** Health endpoint shows `degraded` even when DB is fully functional. Misleading for ops.
+- **Fix:** Reset flag to True on each successful DB query in `persist_scores()`.
+- **File:** `backend/database/persistence.py:64`
+- **Effort:** 5 min
+
+### NEW-E: No Finnhub REST snapshot at boot — MEDIUM
+- **Symptom:** US equities show `null` when market is closed. Cannot replay-backtest with current real prices.
+- **Cause:** `finnhub_connector.py` is WebSocket-only. No `/quote` REST call at startup to seed initial prices.
+- **Fix:** Add `_seed_initial_quotes()` method that hits `https://finnhub.io/api/v1/quote?symbol=XXX&token=YYY` for each symbol on startup.
+- **File:** `backend/ingestion/finnhub_connector.py`
+- **Effort:** 25 min
+
+### NEW-F: No WebSocket error boundaries — LOW
+- **Symptom:** WebSocket-dependent components (ScoreCards, LiveTicker, etc.) can crash the whole dashboard if a single bad message arrives.
+- **Fix:** Add React Error Boundary wrapper around WS-rendered children.
+- **File:** new `frontend/src/app/components/ErrorBoundary.jsx` + wrap in `page.js`
+- **Effort:** 15 min
+
+---
+
+## EXECUTION ORDER (dependency-aware)
 
 ```
-                ┌──────────────────────────────────────────────────────┐
-                │                  DATA SOURCES                        │
-                │  Polygon WS · Finnhub WS · FRED REST · Replay CSV    │
-                │  Simulator (GBM+Cholesky) · News Sentiment (stub)    │
-                └────────────────┬─────────────────────────────────────┘
-                                 │ event-time tagged ticks
-                                 ▼
-                ┌──────────────────────────────────────────────────────┐
-                │     INGESTION LAYER (async, back-pressured)           │
-                │  · Connection heartbeats, exponential reconnect       │
-                │  · Zero-copy normalization → canonical tick schema    │
-                │  · Event-time extraction + monotonic clock skew calc  │
-                └────────────────┬─────────────────────────────────────┘
-                                 ▼
-                ┌──────────────────────────────────────────────────────┐
-                │   REDIS STREAMS (primary) / asyncio.Queue (fallback)  │
-                │   · stream:market_ticks · stream:inference            │
-                │   · stream:alerts     · MAX_LEN 10k, XADD ~approx     │
-                │   · Circuit breaker → in-process fallback on Redis DN │
-                └────────────────┬─────────────────────────────────────┘
-                                 ▼
-                ┌──────────────────────────────────────────────────────┐
-                │   WATERMARKING + WINDOWING (new in v3)                │
-                │   · Event-time watermark = max_seen - bounded_latency │
-                │   · Holds window open ≤ 300ms for late arrivals       │
-                │   · Emits "degraded" flag + LKG patch for stragglers  │
-                └────────────────┬─────────────────────────────────────┘
-                                 ▼
-                ┌──────────────────────────────────────────────────────┐
-                │   MICRO-BATCH ML INFERENCE (every 10 ticks or 500ms)  │
-                │   ├── Isolation Forest   (global outlier)             │
-                │   ├── LSTM Autoencoder   (temporal anomaly)           │
-                │   ├── CISS              (ECB systemic stress)         │
-                │   ├── t-Copula + GARCH  (tail dependence) ← NEW       │
-                │   ├── Merton + SRISK    (credit risk)                 │
-                │   ├── VaR / CVaR       (portfolio risk, 3 methods)    │
-                │   └── Ensemble weighted fusion + severity classifier  │
-                └──────────┬───────────────────────────┬───────────────┘
-                           ▼                           ▼
-     ┌────────────────────────────┐  ┌─────────────────────────────────┐
-     │   ALERT DISPATCHER (NEW)    │  │   PERSISTENCE (dual-write)      │
-     │   · Slack / Discord         │  │   · Postgres star schema        │
-     │   · PagerDuty Events v2     │  │   · TimescaleDB hypertable opt. │
-     │   · Generic webhook         │  │   · Redis score cache (30s TTL) │
-     │   · Email (SMTP)            │  │   · Model checkpoint on crisis  │
-     │   · Severity routing + dedup│  └─────────────────────────────────┘
-     └────────────────────────────┘
-                           │
-                           ▼
-     ┌──────────────────────────────────────────────────────────────┐
-     │   FASTAPI (REST + WebSocket)                                  │
-     │   · /ws/dashboard broadcast (throttled server-side)           │
-     │   · /api/* full REST surface (20+ endpoints)                  │
-     │   · /metrics Prometheus text exposition                       │
-     │   · /health deep check (CB state, pipeline, replay status)    │
-     │   · Rate limiter + optional API key                           │
-     └──────────────────────────────┬────────────────────────────────┘
-                                    ▼
-     ┌──────────────────────────────────────────────────────────────┐
-     │   NEXT.JS DASHBOARD (RAF-buffered, 60fps Canvas/ECharts)     │
-     │   · 15+ components, glassmorphism theme                       │
-     │   · TailDependenceMatrix (new)                                │
-     │   · PortfolioBuilder (new — user enters tickers + weights)    │
-     │   · BacktestView (new — ROC curves over 2008/COVID/SVB)       │
-     │   · ReplayController (new — stream historical data)           │
-     └──────────────────────────────────────────────────────────────┘
+Phase 1: NEW-A (off-hours tick collapse)          ← pipeline freezes without it
+Phase 2: NEW-E (Finnhub REST snapshot)            ← equities show null otherwise
+Phase 3: NEW-D (_db_available stale flag)        ← cosmetic but ops-facing
+Phase 4: NEW-B (simulator source tag)             ← cosmetic
+Phase 5: 4.3 (WS error boundaries)                ← last item from FIXES_REQUIRED.md
+Phase 6: NEW-C (Finnhub key validation)           ← user-action verification only
 ```
 
 ---
 
-## 2. Tech Stack (v3 — unbloated)
+## PHASE 1 — NEW-A: Off-Hours Tick Collapse
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Ingestion | Python `websockets` + `aiohttp` + `asyncio` | Single async loop, zero thread contention |
-| Normalization | Pydantic + canonical tick schema | Schema validation at the boundary |
-| Queue | Redis Streams (primary) + `asyncio.Queue` (fallback) | Stream semantics without Kafka overhead |
-| Watermarking | In-process event-time tracker | Bounded lateness, explicit LKG patching |
-| ML | scikit-learn IF + PyTorch LSTM + NumPy/SciPy (Copula, GARCH, CISS, Merton, VaR) | Mature libs, no framework lock-in |
-| Ensemble | Custom weighted fusion + severity classifier | Explainable; each weight auditable |
-| Alerting | `aiohttp` POSTs + `smtplib` | No third-party alerting SDK — portable |
-| DB | PostgreSQL 16 + asyncpg (default), TimescaleDB (opt) | Star schema default, hypertable for prod scale |
-| Cache | Redis (same instance as streams) | One infra dep |
-| API | FastAPI + uvicorn | Async, WebSocket-native, auto-docs |
-| Frontend | Next.js 16 + React 19 + ECharts 6 + Framer Motion 12 | Server components, Canvas rendering, RAF buffer |
-| Infra | Docker Compose + multi-stage Dockerfiles | One-command deploy; slim prod images |
-| Observability | Prometheus text exposition + structured JSON logs | Drop into any stack |
-| Deployment target | Docker Compose (dev), K8s manifests (prod, optional) | Portable |
+**File:** `backend/pipeline/tasks.py`
 
-**Explicitly rejected:**
-- **Kafka** — operationally too heavy for our scale (< 50 events/sec). Redis Streams gives us partitioning + consumer groups + replay with no ZK/KRaft ops burden.
-- **Ray / Spark Structured Streaming** — research proposes these. Overkill. One `asyncio` event loop handles 25 Hz comfortably; micro-batching is done in-process.
-- **Kubernetes at hackathon** — Compose is faster to demo. K8s manifests ship for the `deploy/k8s/` path so a real deployment is a `kubectl apply -f` away.
-- **SHAP on LSTM** — explanations are provided via IF perturbation importance + CISS segment attribution. SHAP on LSTM burns time and the output is harder to defend than a perturbation-importance bar.
+**Change:** In `ingestion_producer()`, when live feeds are connected, still emit "heartbeat" ticks every 2 seconds using the latest real prices from `_finnhub._price_history` and `_twelve_data.latest_prices`. Real trade ticks continue to fire as they arrive and override.
 
----
+```python
+# New logic: always emit; simulator fills gaps when no real data
+while g._pipeline_running:
+    try:
+        tick_data = None
+        if simulator.crisis_mode:
+            tick_data = simulator.generate_tick()
+        elif g._data_mode == "simulator":
+            tick_data = simulator.generate_tick()
+        else:
+            # Hybrid: prefer real data; fall back to heartbeat using last-known real prices
+            tick_data = _build_heartbeat_tick()  # NEW: uses last Finnhub/Twelve Data prices
 
-## 3. Algorithmic Strategy (How Each Model Earns Its Weight)
-
-### 3.1 Isolation Forest (global, cross-sectional anomaly)
-- `n_estimators=200`, `contamination=0.05`, min 50 samples warm-up
-- **Input:** 72-dim state vector (18 assets × 4 features: return, rolling vol, rolling-mean, max-abs-return)
-- **Output:** score ∈ [0,1] + per-feature perturbation importance
-- **Why:** captures sudden cross-sectional deviations that temporal models miss (e.g., all FX pairs simultaneously gap)
-
-### 3.2 LSTM Autoencoder (temporal / regime change)
-- Encoder LSTM(72→64→32) → Decoder LSTM(32→64→72)
-- Sequence length 60 ticks; online training after 200-tick warm-up
-- Reconstruction MSE → empirical CDF → [0,1] score
-- **Why:** catches slow-building stress patterns (precursor-to-crash regimes) that the IF cross-sectional view misses
-
-### 3.3 CISS (ECB composite stress)
-- 5 market segments × empirical CDF → correlation-weighted quadratic form
-- `CISS = sqrt(z' × C × z) / sqrt(n)` where `C` is rolling cross-segment correlation
-- **Why:** ECB-validated methodology carries institutional credibility; its correlation weighting is already partially copula-like
-
-### 3.4 t-Copula + GARCH(1,1) — NEW IN v3
-- **Marginal:** GARCH(1,1) fit per asset class to capture volatility clustering; standardized residuals extracted
-- **Joint:** t-copula with estimated degrees of freedom ν; Kendall's τ → copula parameter
-- **Output:**
-  - Tail-dependence coefficient λ_L ∈ [0,1] per asset pair (lower-tail: probability that asset B crashes given A crashes)
-  - Average tail dependence (system-wide)
-  - Joint crash probability P(R_1 < VaR_1, R_2 < VaR_2) via copula
-- **Why this over Pearson:** Pearson correlation converges to zero at the exact moment (deep tail) where we need to detect contagion. t-copula preserves tail dependence even when bulk correlation is mild.
-
-### 3.5 Merton Distance-to-Default + SRISK
-- DD, PD via structural model; SRISK via LRMES × leverage × equity value
-- 5 tracked SIFI banks; aggregate SRISK → system capital-shortfall metric
-- **Why:** converts abstract anomaly scores into a dollar figure a regulator understands
-
-### 3.6 VaR / CVaR
-- Historical, Parametric Gaussian, Cornish-Fisher (skew/kurt-adjusted)
-- 99% confidence, 500-observation rolling window
-- **NEW in v3:** portfolio-level VaR — user submits `{ticker: weight}`, gets portfolio VaR back
-
-### 3.7 Ensemble Weighted Fusion
-- `combined = 0.35·IF + 0.35·LSTM + 0.20·CISS + 0.10·copula_tail` (copula adds 0.10 weight in v3)
-- Severity: NORMAL < 0.3 < LOW < 0.5 < MEDIUM < 0.7 < HIGH < 0.85 ≤ CRITICAL
-- Alert fires on HIGH+; dispatched through `utils/alerting.py`
-
----
-
-## 4. Dimensional Data Model (Kimball Star Schema)
-
-### Fact table
-- `fact_market_metrics` — one row per (tick, asset): price, change, spread_bps, implied_vol, volume, 4 score columns, DD, PD, `is_degraded` (watermark flag — NEW)
-
-### Dimension tables
-- `dim_time` — `epoch_ms, trading_hour, day_of_week, calendar_month, market_session_state` (SCD-1)
-- `dim_asset` — `ticker, asset_class, name, currency, jurisdiction, sector` (SCD-2 ready)
-- `dim_source` — `provider_name, api_endpoint, latency_tier, protocol`
-- `dim_alert` — `alert_type, severity, model_source, description, trigger_time`
-
-### TimescaleDB path (opt-in via `USE_TIMESCALE=1`)
-- Convert `fact_market_metrics` into a hypertable partitioned on `time_id`
-- 7-day chunk interval, 30-day compression policy
-- Continuous aggregate for 1-minute CISS/combined rollups
-
----
-
-## 5. File Structure (v3)
-
-```
-project-velure/
-├── docker-compose.yml
-├── docker-compose.prod.yml              # prod overlay: multi-stage, no hot reload
-├── .env.example
-├── README.md / Readme.md
-├── IMPLEMENTATION_PLAN.md               # (this file)
-├── PLAYBOOK.md                          # 48-hour sprint schedule
-├── PRODUCTION_READINESS.md              # gap analysis + deploy checklist
-├── RESEARCH.md
-│
-├── backend/
-│   ├── Dockerfile                       # multi-stage, non-root runtime
-│   ├── requirements.txt
-│   ├── main.py                          # FastAPI entry + pipeline orchestrator
-│   ├── ingestion/
-│   │   ├── simulator.py
-│   │   ├── redis_streams.py
-│   │   ├── finnhub_connector.py
-│   │   ├── watermark.py                 # NEW — event-time tracker
-│   │   └── replay.py                    # NEW — historical CSV replay engine
-│   ├── models/
-│   │   ├── isolation_forest.py
-│   │   ├── lstm_autoencoder.py
-│   │   ├── ciss_scorer.py
-│   │   ├── merton_model.py
-│   │   ├── var_calculator.py
-│   │   ├── copula_model.py              # NEW — t-copula + GARCH(1,1)
-│   │   └── ensemble.py                  # updated — includes copula in fusion
-│   ├── portfolio/
-│   │   └── portfolio_var.py             # NEW — user portfolio VaR
-│   ├── backtesting/
-│   │   ├── harness.py                   # NEW — rolling backtest engine
-│   │   └── historical_crises.py         # NEW — labeled crisis windows
-│   ├── utils/
-│   │   ├── config.py
-│   │   ├── logger.py
-│   │   ├── circuit_breaker.py
-│   │   ├── middleware.py
-│   │   ├── alerting.py                  # NEW — webhook/email dispatcher
-│   │   └── model_persistence.py         # NEW — atomic checkpoint/restore
-│   └── db/
-│       ├── schema.sql
-│       ├── schema_timescale.sql         # NEW — hypertable variant
-│       ├── seed.sql
-│       └── connection.py
-│
-├── frontend/
-│   ├── Dockerfile                       # multi-stage, standalone output
-│   ├── package.json
-│   └── src/
-│       ├── lib/useWebSocket.js
-│       └── app/
-│           ├── layout.js
-│           ├── page.js
-│           ├── globals.css
-│           └── components/
-│               ├── CISSGauge.jsx
-│               ├── ScoreCards.jsx
-│               ├── LiveTicker.jsx
-│               ├── AnomalyTimeline.jsx
-│               ├── DefaultCards.jsx
-│               ├── CorrelationHeatmap.jsx
-│               ├── ExplainabilityPanel.jsx
-│               ├── AlertBanner.jsx
-│               ├── StressTestButton.jsx
-│               ├── SRISKPanel.jsx
-│               ├── SystemMetrics.jsx
-│               ├── StatusFooter.jsx
-│               ├── VaRPanel.jsx
-│               ├── ContagionNetwork.jsx
-│               ├── TailDependenceMatrix.jsx   # NEW
-│               ├── PortfolioBuilder.jsx       # NEW
-│               ├── BacktestView.jsx           # NEW
-│               └── ReplayController.jsx       # NEW
-│
-├── data/
-│   ├── historical/                      # labeled crisis CSVs (2008, 2020, 2023)
-│   └── checkpoints/                     # model .pkl / .pt snapshots
-│
-├── deploy/
-│   ├── k8s/                             # Kubernetes manifests (optional)
-│   ├── grafana/                         # dashboard JSON
-│   └── nginx.conf                       # reverse proxy config
-│
-└── tests/
-    ├── test_ensemble.py
-    ├── test_watermark.py
-    ├── test_copula.py
-    └── test_alerting.py
+        if tick_data:
+            tick_data = watermark.ingest("simulator", tick_data)
+            await redis_streams.publish_tick(tick_data)
+        await asyncio.sleep(g._tick_rate)
 ```
 
----
+The new `_build_heartbeat_tick()` helper in tasks.py queries `g._finnhub._price_history` and `g._twelve_data.latest_prices`, falls back to simulator anchor prices for any missing ticker.
 
-## 6. API Surface (v3)
+**Verification:**
+- During off-hours: ticks continue at `_tick_rate` (0.25s = 4 Hz)
+- Prices reflect last-known real values, not new random walks
+- `peak_combined` updates every few seconds instead of freezing
 
-### REST
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/` | System status |
-| GET | `/health` | Deep health check (pipeline, Redis, PG, circuit breakers, replay) |
-| GET | `/metrics` | Prometheus text exposition |
-| GET | `/api/scores` | Latest ML ensemble scores |
-| GET | `/api/merton` | Per-institution DD/PD/SRISK |
-| GET | `/api/merton/srisk` | Aggregate SRISK |
-| GET | `/api/ciss/breakdown` | CISS component decomposition |
-| GET | `/api/copula` | **NEW** t-copula tail-dependence matrix + joint crash prob |
-| GET | `/api/var` | VaR/CVaR (3 methods) on default asset basket |
-| POST | `/api/var/portfolio` | **NEW** VaR on user-supplied `{ticker: weight}` portfolio |
-| GET | `/api/alerts` | Recent alerts (in-memory) |
-| GET | `/api/metrics` | Pipeline metrics (throughput, latency, watermark lag) |
-| GET | `/api/crisis-presets` | Named crisis scenarios |
-| GET | `/api/config` | System configuration |
-| POST | `/api/stress-test/activate` | Custom crisis injection |
-| POST | `/api/stress-test/preset` | Named preset |
-| POST | `/api/stress-test/deactivate` | Restore normal |
-| POST | `/api/speed/{mode}` | slow/normal/fast/turbo |
-| POST | `/api/replay/start` | **NEW** Stream historical crisis data through pipeline |
-| POST | `/api/replay/stop` | **NEW** Stop replay |
-| GET | `/api/replay/status` | **NEW** Replay progress |
-| POST | `/api/backtest/run` | **NEW** Run backtest against labeled crisis dates |
-| GET | `/api/backtest/results` | **NEW** Retrieve latest backtest ROC/AUC |
-| POST | `/api/alerting/test` | **NEW** Send a test alert through configured sinks |
-| POST | `/api/checkpoint/save` | **NEW** Force model checkpoint to disk |
-| POST | `/api/checkpoint/load` | **NEW** Restore models from checkpoint |
-
-### WebSocket
-| Path | Purpose |
-|------|---------|
-| `/ws/dashboard` | Live score + market + alert stream |
+**Effort:** 20 min
 
 ---
 
-## 7. Production-Readiness Features (v3)
+## PHASE 2 — NEW-E: Finnhub REST Snapshot at Boot
 
-| Concern | Implementation |
-|---------|----------------|
-| Cold start | `model_persistence.py` atomically writes `.pkl`/`.pt` + CDF/buffer state on SIGTERM and on every CRITICAL alert; restores on boot |
-| Alert fan-out | `alerting.py` dispatches to Slack, Discord, PagerDuty v2, generic webhook, SMTP email; severity routing; 5-min dedup key |
-| Event-time correctness | `watermark.py` tracks max_seen event timestamp, bounded lateness 300ms, LKG patches missing streams, flags `is_degraded=True` |
-| Backtest validation | `backtesting/harness.py` streams labeled historical CSVs through the full ensemble; emits ROC/AUC, false-positive rate, lead time |
-| Portfolio support | `portfolio/portfolio_var.py` accepts user portfolio; computes portfolio VaR + component VaR per position |
-| TimescaleDB | `schema_timescale.sql` converts fact table to hypertable + continuous aggregates |
-| Multi-stage Docker | Slim python:3.12-slim runtime, non-root user, distroless-style |
-| K8s path | `deploy/k8s/*.yaml` Deployment/Service/Ingress + PodDisruptionBudget |
-| Observability | Prometheus `/metrics` already live; `deploy/grafana/` ships a starter dashboard |
-| Tests | `tests/` — pytest for ensemble, watermark, copula, alerting critical paths |
+**File:** `backend/ingestion/finnhub_connector.py`
 
----
+**Add:** New method `_seed_initial_quotes()` called from `start()` after WebSocket connect:
 
-## 8. 48-Hour Sprint Schedule
-
-See `PLAYBOOK.md` for the hour-by-hour schedule. High-level phase map:
-
-```
-H00-H04  Ingestion + Redis Streams wiring (DONE in v2)
-H04-H10  Model stack: IF + LSTM + CISS + Merton + VaR (DONE in v2)
-H10-H14  Copula + GARCH + Watermarking (v3 NEW)
-H14-H20  FastAPI + WS broadcast + REST (DONE; extend with v3 endpoints)
-H20-H28  Next.js dashboard + charts (DONE; add 4 new components)
-H28-H32  Alerting + model persistence (v3 NEW)
-H32-H36  Backtesting harness + historical replay (v3 NEW)
-H36-H40  Portfolio VaR + TimescaleDB path (v3 NEW)
-H40-H44  Docker hardening + K8s manifests + Grafana (v3 NEW)
-H44-H46  Integration testing + load testing + fix list
-H46-H48  Demo rehearsal + pitch deck + demo-video fallback
+```python
+async def _seed_initial_quotes(self):
+    """REST /quote snapshot for every symbol. Populates _price_history
+    so the state builder has real values even when WebSocket has no trades."""
+    if not self._api_key:
+        return
+    for finnhub_sym in FINNHUB_SYMBOL_MAP:
+        try:
+            data = await self._rest_get(f"https://finnhub.io/api/v1/quote?symbol={finnhub_sym}&token={self._api_key}")
+            if data and data.get("c"):  # 'c' = current price
+                self._price_history[finnhub_sym].append(float(data["c"]))
+        except Exception:
+            pass  # silently skip; WebSocket will fill in eventually
 ```
 
----
+**Verification:** After boot, US equities show real values even before first trade.
 
-## 9. Demo Script (7 Minutes — v3)
-
-1. **[0:00–0:30]** Boot dashboard. Normal market — CISS green, copula tail-λ < 0.2, SRISK near zero, all institutions HEALTHY
-2. **[0:30–1:00]** Call out system-metrics panel: live tps, watermark lag, Redis connected, Postgres writes/sec
-3. **[1:00–1:30]** Turbo speed (25 Hz) — show system absorbing velocity; no lag; pipeline latency stays < 50 ms
-4. **[1:30–3:00]** Click **Lehman 2008** preset → correlations spike → copula tail-dependence matrix turns red → CISS sweeps to red → 5 institutions drop to CRITICAL → SRISK aggregate rockets → HIGH/CRITICAL alerts fire and dispatch to Slack in real time
-5. **[3:00–3:45]** Pull up **Backtest View** — show ROC curve over labeled crisis windows (Lehman Sep-15-2008, COVID Mar-09-2020, SVB Mar-10-2023), AUC figures, and lead time histogram
-6. **[3:45–4:30]** Open **Portfolio Builder** — paste a user portfolio (e.g., 60% SPY / 30% TLT / 10% GLD), hit compute, show portfolio VaR/CVaR + component VaR
-7. **[4:30–5:15]** Trigger **Historical Replay** — stream actual 2008 tick data through the pipeline at 10× speed, watch the models light up on the real event
-8. **[5:15–6:00]** Deactivate crisis → models recover → show **model checkpoint saved on crisis** log line → restart backend → models warm-start from disk, no cold-start window
-9. **[6:00–7:00]** Architecture deep-dive: copula vs Pearson (why this matters), event-time watermarking (why the system doesn't lie during stragglers), multi-sink alerting, K8s manifests in `deploy/`
+**Effort:** 25 min
 
 ---
 
-## 10. Build Status
+## PHASE 3 — NEW-D: `_db_available` Stale Flag
 
-### ✅ Completed in v2
-- [x] Monorepo + Docker Compose + env config
-- [x] PostgreSQL star schema (DDL + seed + asyncpg pool)
-- [x] Correlated GBM simulator + crisis injection + 4 presets
-- [x] Isolation Forest with perturbation feature importance
-- [x] LSTM Autoencoder (online training, CDF scoring)
-- [x] CISS scorer (5 segments, empirical CDF, correlation-weighted)
-- [x] Merton DD + SRISK for 5 SIFI banks
-- [x] VaR/CVaR (Historical, Parametric, Cornish-Fisher)
-- [x] Ensemble orchestrator (weighted fusion + severity)
-- [x] Redis Streams publish/consume + asyncio fallback
-- [x] FastAPI server + WebSocket + REST surface
-- [x] Stress test + speed control endpoints
-- [x] Pipeline health metrics
-- [x] Dashboard (15 components, glassmorphism)
-- [x] `useWebSocket` RAF-buffered hook
-- [x] Circuit breakers + structured JSON logs + rate limiter
-- [x] Prometheus `/metrics` + deep `/health`
-- [x] Finnhub WebSocket live connector
-- [x] Docker health checks
+**File:** `backend/database/persistence.py`
 
-### ✅ Completed in v3
-- [x] `copula_model.py` — t-copula + GARCH(1,1) tail dependence
-- [x] `watermark.py` — event-time watermarking with bounded lateness
-- [x] `model_persistence.py` — atomic checkpoint/restore
-- [x] `alerting.py` — multi-sink dispatcher (Slack/Discord/PD/webhook/email)
-- [x] `replay.py` — historical CSV replay engine
-- [x] `backtesting/harness.py` + `historical_crises.py` — ROC/AUC validation
-- [x] `portfolio/portfolio_var.py` — user portfolio VaR endpoint
-- [x] `schema_timescale.sql` + hypertable migration
-- [x] `TailDependenceMatrix.jsx`, `PortfolioBuilder.jsx`, `BacktestView.jsx`, `ReplayController.jsx`
-- [x] Multi-stage Dockerfile hardening + `docker-compose.prod.yml`
-- [x] `tests/` — pytest scaffold
-- [x] `PLAYBOOK.md` + `PRODUCTION_READINESS.md`
-- [x] Institutional UI pass — single accent palette, no emojis, sharp radii, tabular numerics
-- [x] Display stability — EMA + 1-min rolling median + 2 s flush (server + client)
+**Change:** After first successful DB query in `persist_scores()`:
 
-### ✅ Completed in v4 (deployment hardening)
-- [x] Caddy TLS reverse proxy + [docker-compose.tls.yml](docker-compose.tls.yml) overlay
-- [x] Postgres backup sidecar + [docker-compose.backup.yml](docker-compose.backup.yml) overlay (with optional S3)
-- [x] Prometheus + Grafana overlay ([docker-compose.observability.yml](docker-compose.observability.yml))
-  - [x] [deploy/prometheus/prometheus.yml](deploy/prometheus/prometheus.yml) + [alerts.yml](deploy/prometheus/alerts.yml)
-  - [x] [deploy/grafana/dashboards/velure-overview.json](deploy/grafana/dashboards/velure-overview.json) + provisioning
-- [x] k6 sustained load test ([tests/load/k6_dashboard_load.js](tests/load/k6_dashboard_load.js)) with hard thresholds
-- [x] Checkpoint recovery pytest ([tests/test_checkpoint_recovery.py](tests/test_checkpoint_recovery.py))
-- [x] CORS wildcard refusal at startup when API key is set
-- [x] WebSocket API-key gate (header or query param), close 1008 on bad key
-- [x] Hash-chained `audit_log` + `model_lineage` tables ([backend/db/migrations/04_audit.sql](backend/db/migrations/04_audit.sql))
-- [x] `GET /api/audit`, `GET /api/audit/verify`, `GET /api/lineage` endpoints
-- [x] Audit sink wired into `alert_dispatcher` so every dispatch is recorded
-- [x] [DEPLOY.md](DEPLOY.md) — operator deploy guide
-- [x] [SECURITY.md](SECURITY.md) — threat model + operator checklist
-
-### 🔭 Out-of-band — handle when scaling beyond a single VM
-- [ ] `deploy/k8s/` manifests (Deployment/Service/Ingress + PDB)
-- [ ] Alembic migration framework
-- [ ] Per-consumer API keys with scopes (RBAC)
-- [ ] Vault / secrets-manager wiring (replaces `.env.prod`)
-- [ ] Alertmanager target wired into `prometheus.yml` `alerting:` block
-- [ ] Trivy / image-vulnerability scanning in CI
-
----
-
-## 11. Key Design Decisions (with rationale)
-
-| Decision | Why |
-|----------|-----|
-| Redis Streams over Kafka | Our scale (< 50 ev/s) doesn't justify Kafka ops burden |
-| t-copula over vine copulas | Vine copulas are more flexible but need 10× data; t-copula captures the core tail behavior |
-| GARCH(1,1) over EGARCH/GJR | (1,1) handles vol clustering; asymmetry captured implicitly by copula |
-| In-process watermarking over Flink | Single-asyncio-loop gives us sub-ms dispatch; Flink adds JVM + another service |
-| Model persistence to disk (not DB) | Fast, atomic via rename; checkpoints are blobs not records |
-| Multi-sink alerting via aiohttp | Zero SDK lock-in; every sink is one POST |
-| Backtest replays real CSVs through the live pipeline | Proves the *shipping code* works; not a separate research harness |
-| Portfolio VaR on-demand (not streaming) | User-facing; caching is a future optimization |
-| TimescaleDB as opt-in | Default to vanilla PG so new contributors aren't blocked |
-| No SHAP on LSTM | Kernel SHAP on a recurrent model is slow, fragile, and harder to defend than IF perturbation + CISS attribution |
-
----
-
-## 12. Out-of-Scope (Explicitly)
-
-- GPU inference: CPU handles 25 Hz comfortably
-- Kafka / Spark: rejected above
-- Multi-tenant auth: single-tenant is sufficient for the prototype
-- Real brokerage integration: not a trading system — it's a monitor
-- Mobile-native app: responsive web is enough
-- LLM-driven commentary: hallucination risk too high for a risk product
-
----
-
-## 13. How to Run
-
-### Dev (hot reload)
-```bash
-docker-compose up --build
-# or locally:
-cd backend && pip install -r requirements.txt && uvicorn main:app --reload
-cd frontend && npm install && npm run dev
+```python
+async def persist_scores(result: dict, tick_data: dict):
+    if not g._db_available or not g._db_pool or not db_circuit.is_available:
+        return
+    try:
+        ...
+        async with g._db_pool.acquire() as conn:
+            # If we got here, the pool is working — ensure the flag reflects reality
+            if not g._db_available:
+                g._db_available = True
+            ...
 ```
 
-### Production overlay
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-```
+**Verification:** `/api/metrics` shows `"db_connected": true` after first DB write.
 
-### Environment flags (see `.env.example`)
-```
-DATA_MODE=simulator|finnhub|hybrid|replay
-USE_TIMESCALE=0|1
-ALERT_SLACK_WEBHOOK=https://hooks.slack.com/...
-ALERT_PAGERDUTY_KEY=...
-ALERT_EMAIL_FROM/TO/SMTP_...=...
-MODEL_CHECKPOINT_DIR=/app/data/checkpoints
-MODEL_CHECKPOINT_ON_CRISIS=1
-WATERMARK_LATENESS_MS=300
-```
+**Effort:** 5 min
 
 ---
+
+## PHASE 4 — NEW-B: Simulator Source Tag
+
+**File:** `backend/ingestion/simulator.py`
+
+**Change:** Add `"source": "simulator"` to `generate_tick()` output dict (line ~130):
+
+```python
+tick_data = {
+    "timestamp": now.isoformat(),
+    "epoch_ms": epoch_ms,
+    "tick_id": self.tick_count,
+    "source": "simulator",       # NEW
+    "crisis_mode": self.crisis_mode,
+    ...
+}
+```
+
+**Verification:** `peek.py` shows `"source": "simulator"` for simulator ticks; `"finnhub_live"` for real trades; `"twelve_data"` for FX.
+
+**Effort:** 10 min
+
+---
+
+## PHASE 5 — 4.3: WebSocket Error Boundaries
+
+**New file:** `frontend/src/app/components/ErrorBoundary.jsx`
+
+```jsx
+'use client';
+import React from 'react';
+
+export default class ErrorBoundary extends React.Component {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Velure ErrorBoundary:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 16, color: '#ef4444', fontSize: 12 }}>
+          Component failed: {String(this.state.error?.message ?? this.state.error)}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+```
+
+**Wrap in `page.js`:** Wrap each WS-dependent component (ScoreCards, LiveTicker, AnomalyTimeline, etc.) with `<ErrorBoundary>...</ErrorBoundary>`.
+
+**Verification:** If any single component throws, dashboard stays alive with a localized error message.
+
+**Effort:** 15 min
+
+---
+
+## PHASE 6 — NEW-C: Finnhub Key Validation
+
+**Action:** Ask user to verify the key at finnhub.io/dashboard. Expected format: 32 lowercase alphanumeric chars. The provided key `dabu9apr01qvvgl6tmp0dabu9apr01qvvgl6tmpg` is 40 chars — may be a typo or paste duplication.
+
+**Verification:** User confirms key regenerates correctly; auth doesn't fail mid-session.
+
+**Effort:** 5 min
+
+---
+
+## TOTAL EFFORT ESTIMATE
+
+| Phase | Effort | Cumulative |
+|-------|--------|-----------|
+| 1: Off-hours ticks | 20 min | 20 min |
+| 2: Finnhub REST | 25 min | 45 min |
+| 3: db flag | 5 min | 50 min |
+| 4: source tag | 10 min | 60 min |
+| 5: ErrorBoundary | 15 min | 75 min |
+| 6: Key verify | 5 min | 80 min |
+
+**All phases fit in ~80 minutes.**
+
+---
+
+## SKILLS TO USE
+
+- `systematic-debugging` — Phase 1 (off-hours collapse is a runtime behavior issue)
+- `clean-code` — All phases (keep patches minimal and readable)
+- `high-perf-browser` — Phase 5 (ErrorBoundary pattern in Next.js 16)
+- `release-it` — Phase 2 (defensive fallback patterns)
+
+---
+
+## POST-FIX VERIFICATION CHECKLIST
+
+```
+docker compose down && docker compose up -d --build
+sleep 60
+
+# Models working
+curl http://localhost:8000/api/metrics | grep -E "ticks_per_second|peak_combined"
+# Expect: ticks_per_second ~4.0, peak_combined > 0.0
+
+# Prices are real
+docker compose exec backend python /tmp/peek.py | grep -E "EURUSD|BTCUSD|source"
+# Expect: EURUSD ~1.16, BTCUSD from Binance, source: "finnhub_live" or "twelve_data"
+
+# DB alive
+curl http://localhost:8000/api/metrics | grep db_connected
+# Expect: db_connected: true (after first write)
+
+# ErrorBoundary in place
+grep -c ErrorBoundary frontend/src/app/page.js
+# Expect: > 0
+```
